@@ -11,6 +11,7 @@ import { getDef, RARITY_LABEL, SYMBOLS } from '../core/symbols.js';
 import { ITEMS } from '../core/items.js';
 import { CELLS } from '../core/board.js';
 import { injectSprites, iconMarkup } from './sprites.js';
+import { sfx, unlockAudio, isMuted, toggleMuted } from './audio.js';
 import { DIFFICULTIES, TOTAL_PERIODS, rentFor, spinsFor } from '../core/rent.js';
 import { dailySeed } from '../core/rng.js';
 import { load, save } from '../core/save.js';
@@ -20,8 +21,8 @@ const el = {
   app: $('app'), board: $('board'), gain: $('gain'), coins: $('coins'),
   periodNum: $('period-num'), spinDots: $('spin-dots'),
   rentFill: $('rent-fill'), rentAmount: $('rent-amount'), rentShort: $('rent-short'),
-  btnSpin: $('btn-spin'), btnDeck: $('btn-deck'), btnItems: $('btn-items'), btnAuto: $('btn-auto'),
-  deckCount: $('deck-count'), itemCount: $('item-count'),
+  btnSpin: $('btn-spin'), btnDeck: $('btn-deck'), btnSound: $('btn-sound'), btnAuto: $('btn-auto'),
+  deckCount: $('deck-count'),
   offer: $('offer'), offerCards: $('offer-cards'), btnSkip: $('btn-skip'),
   shop: $('shop'), shopHead: $('shop-head'), shopSub: $('shop-sub'),
   shopItems: $('shop-items'), shopRemove: $('shop-remove'),
@@ -103,7 +104,6 @@ function renderAll() {
   el.rentAmount.textContent = rent.toLocaleString();
   el.coins.textContent = run.coins.toLocaleString();
   el.deckCount.textContent = run.inventory.length;
-  el.itemCount.textContent = run.items.length;
 
   const pct = Math.min(100, (run.coins / rent) * 100);
   el.rentFill.style.width = `${pct}%`;
@@ -132,6 +132,7 @@ function clearBoard() {
 }
 
 function paintBoard(placed, { withGains = false } = {}) {
+  hotCell = null;
   for (let i = 0; i < CELLS; i++) {
     const p = placed[i];
     const c = cells[i];
@@ -174,16 +175,29 @@ async function doSpin() {
   renderAll();
   persist();
 
-  if (run.phase === 'offering') showOffer();
-  else if (run.phase === 'shop') showShop();
-  else if (run.phase === 'over' || run.phase === 'clear') showResult();
+  if (run.phase === 'offering') { showOffer(); }
+  else if (run.phase === 'shop') { sfx.rentOk(); showShop(); }
+  else if (run.phase === 'clear') { sfx.clear(); showResult(); }
+  else if (run.phase === 'over') { sfx.rentFail(); showResult(); }
 }
 
+/**
+ * スピンの演出。
+ *
+ * 肝は「どのマスがいくら入れたのか」を 1マスずつ順に見せること。
+ * まとめて出すと数字が一度に増えるだけで、シナジーを組んだ実感が残らない。
+ * 順番は盤面インデックスの昇順＝左上から右下への読み順で、
+ * これはエンジンの効果解決順（docs/02-game-design.md 2.3）とも一致している。
+ *
+ * 全体で 1.2 秒前後に収める。マス数が多いほど 1マスあたりを詰めて、
+ * 総尺が伸びないようにする。画面のどこかを触れば即スキップできる。
+ */
 async function animateSpin(result, coinsBefore) {
   skipReset();
 
-  // 1. 落ちてくる
+  // ── 1. 落ちてくる ────────────────────────────────
   paintBoard(result.placed);
+  sfx.spin();
   for (let i = 0; i < CELLS; i++) {
     const c = cells[i].root;
     if (!result.placed[i]) continue;
@@ -192,28 +206,99 @@ async function animateSpin(result, coinsBefore) {
     c.style.animationDelay = `${(i % 4) * 34 + Math.floor(i / 4) * 14}ms`;
     c.classList.add('drop');
   }
-  await wait(fast ? 0 : 300);
+  if (!fast) for (let col = 0; col < 4; col++) sfx.reel(col);
+  await wait(fast ? 0 : 260);
 
-  // 2. 効果が乗ったマスがはねる
-  paintBoard(result.placed, { withGains: true });
-  for (let i = 0; i < CELLS; i++) {
-    const p = result.placed[i];
-    if (!p || p.destroyed || !p.touched) continue;
-    const c = cells[i].root;
-    c.classList.add('hot');
-    if (!fast) { c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop'); }
+  const placed = result.placed.filter(Boolean);
+  const scoring = placed.filter((p) => !p.destroyed && p.gain > 0);
+
+  // ── 2. 壊れたシンボルを先に見せる ──────────────────
+  // 「消えたから点が入らなかった」を、加算が始まる前に理解させる
+  const destroyed = placed.filter((p) => p.destroyed);
+  if (destroyed.length > 0 && !fast && !skipRequested) {
+    for (const p of destroyed) cells[p.index].root.classList.add('dead');
+    sfx.destroy();
+    await wait(170);
   }
-  await wait(fast ? 0 : 280);
 
-  // 3. 合計とコインのカウントアップ
-  el.gain.textContent = `+${result.total.toLocaleString()}`;
-  el.gain.classList.add('show');
+  // ── 3. 1マスずつ加算 ─────────────────────────────
+  const per = fast ? 0 : clamp(620 / Math.max(1, scoring.length), 28, 95);
+  let running = 0;
+  let step = 0;
+
+  for (const p of scoring) {
+    if (skipRequested) break;
+    running += p.gain;
+    revealCellGain(p.index, p.gain);
+    setGainText(`+${running.toLocaleString()}`);
+    sfx.coin(step++, p.gain >= 40);
+    await wait(per);
+  }
+
+  // 途中でスキップされた場合は、残りをまとめて出す
+  if (running !== result.subtotal) {
+    for (const p of scoring) revealCellGain(p.index, p.gain, { silent: true });
+    running = result.subtotal;
+    setGainText(`+${running.toLocaleString()}`);
+  }
+
+  // ── 4. 合計への倍率（龍神など） ────────────────────
+  if (result.totalMultiplier > 1) {
+    el.gain.classList.add('big');
+    if (!fast && !skipRequested) {
+      setGainText(`+${running.toLocaleString()} × ${result.totalMultiplier}`);
+      sfx.multiply();
+      await wait(340);
+    }
+  }
+
+  // ── 5. 財布に入る ────────────────────────────────
+  clearHot();
+  setGainText(`+${result.total.toLocaleString()}`);
   el.gain.classList.toggle('big', result.totalMultiplier > 1 || result.total >= 200);
+  sfx.cash();
   el.coins.classList.remove('bump');
   void el.coins.offsetWidth;
   el.coins.classList.add('bump');
-  await countUp(coinsBefore, run.coins, fast ? 0 : 260);
-  await wait(fast ? 0 : 150);
+  await countUp(coinsBefore, run.coins, fast ? 0 : 220);
+  await wait(fast ? 0 : 80);
+}
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+function setGainText(text) {
+  el.gain.textContent = text;
+  el.gain.classList.add('show');
+}
+
+/**
+ * 1マスぶんの獲得値を出す。
+ * 枠の強調は「いま加算しているマス」だけに付ける。
+ * 加算済み全部に付けると、終盤には盤面のほぼ全マスが光って何も伝えなくなる。
+ * 加算済みかどうかは、残る数字のほうが正確に伝えてくれる。
+ */
+let hotCell = null;
+
+function revealCellGain(index, value, { silent = false } = {}) {
+  const c = cells[index];
+  c.gain.textContent = value;
+  c.gain.classList.add('show');
+  if (silent || fast) return;
+
+  if (hotCell && hotCell !== c.root) hotCell.classList.remove('hot');
+  hotCell = c.root;
+  c.root.classList.add('hot');
+
+  c.gain.classList.remove('rise');
+  c.root.classList.remove('pop');
+  void c.root.offsetWidth;
+  c.gain.classList.add('rise');
+  c.root.classList.add('pop');
+}
+
+function clearHot() {
+  if (hotCell) hotCell.classList.remove('hot');
+  hotCell = null;
 }
 
 function countUp(from, to, ms) {
@@ -285,8 +370,9 @@ window.addEventListener('resize', () => { if (!el.offer.hidden) fitSheet(); });
 
 /** 1タップ目で選択（相性のよい所持シンボルを盤面で光らせる）、2タップ目で確定 */
 function onCardTap(i, card, def) {
-  if (selectedCard === i) { commitOffer(i); return; }
+  if (selectedCard === i) { sfx.buy(); commitOffer(i); return; }
   selectedCard = i;
+  sfx.tap();
   for (const c of el.offerCards.children) {
     c.classList.remove('selected');
     c.querySelector('.card-confirm').textContent = '';
@@ -318,7 +404,7 @@ function commitOffer(i) {
   chooseOffer(run, i);
   closeOffer();
 }
-el.btnSkip.addEventListener('click', () => { chooseOffer(run, null); closeOffer(); });
+el.btnSkip.addEventListener('click', () => { sfx.tap(); chooseOffer(run, null); closeOffer(); });
 
 function closeOffer() {
   el.offer.hidden = true;
@@ -357,7 +443,7 @@ function renderShopItems() {
       <span><span class="nm">${it.name}</span><br><span class="ds">${it.desc}</span></span>
       <span class="pr">${it.price}</span>`;
     b.addEventListener('click', () => {
-      if (buyItem(run, id)) { renderShopItems(); renderRemoveGrid(); showShop(); persist(); }
+      if (buyItem(run, id)) { sfx.buy(); renderShopItems(); renderRemoveGrid(); showShop(); persist(); }
     });
     el.shopItems.appendChild(b);
   }
@@ -377,9 +463,10 @@ function renderRemoveGrid() {
         if (armedChip) armedChip.classList.remove('armed');
         armedChip = chip;
         chip.classList.add('armed');
+        sfx.tap();
         return;
       }
-      if (removeSymbol(run, g.uids[0])) { renderRemoveGrid(); showShop(); persist(); }
+      if (removeSymbol(run, g.uids[0])) { sfx.discard(); renderRemoveGrid(); showShop(); persist(); }
     });
     el.shopRemove.appendChild(chip);
   }
@@ -396,8 +483,9 @@ function groupInventory() {
   return [...map.values()].sort((a, b) => b.count - a.count);
 }
 
-el.btnReroll.addEventListener('click', () => { if (rerollShop(run)) { showShop(); persist(); } });
+el.btnReroll.addEventListener('click', () => { if (rerollShop(run)) { sfx.tap(); showShop(); persist(); } });
 el.btnNext.addEventListener('click', () => {
+  sfx.tap();
   leaveShop(run);
   el.shop.hidden = true;
   clearBoard();
@@ -425,8 +513,7 @@ function showDeck() {
   }
   el.deck.hidden = false;
 }
-el.btnDeck.addEventListener('click', showDeck);
-el.btnItems.addEventListener('click', showDeck);
+el.btnDeck.addEventListener('click', () => { sfx.tap(); showDeck(); });
 el.btnDeckClose.addEventListener('click', () => { el.deck.hidden = true; hideTip(); });
 
 // ───────────────────────── リザルト ─────────────────────────
@@ -503,6 +590,22 @@ el.btnRestart.addEventListener('click', () => {
   el.menu.hidden = true;
   startRun(Math.floor(Math.random() * 1e9));
 });
+
+el.btnSound.addEventListener('click', () => {
+  const m = toggleMuted();
+  syncSoundButton();
+  if (!m) sfx.tap();
+});
+
+function syncSoundButton() {
+  const m = isMuted();
+  el.btnSound.textContent = m ? '🔇 音' : '🔊 音';
+  el.btnSound.classList.toggle('on', !m);
+}
+syncSoundButton();
+
+// ブラウザの自動再生制限は、最初のユーザー操作でしか外せない
+document.addEventListener('pointerdown', unlockAudio, { once: true });
 
 el.btnAuto.addEventListener('click', () => {
   fast = !fast;

@@ -203,7 +203,14 @@ body {
   text-shadow: 0 1px 2px rgba(0,0,0,.5);
   opacity: 0;
 }
-.cell-gain.show { opacity: 1; transition: opacity .12s; }
+.cell-gain.show { opacity: 1; transition: opacity .1s; }
+/* 加算された瞬間、数字がふわっと持ち上がる */
+.cell-gain.rise { animation: gainRise .26s ease-out; }
+@keyframes gainRise {
+  from { transform: translateY(5px) scale(.55); opacity: 0; }
+  60%  { transform: translateY(-2px) scale(1.2); opacity: 1; }
+  to   { transform: none; opacity: 1; }
+}
 
 /* ───────────────── 獲得表示 ───────────────── */
 
