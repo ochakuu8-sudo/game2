@@ -122,13 +122,28 @@ export const sfx = {
   },
 
   /**
-   * 1マスぶんの加算。step が進むほど音程が上がっていく。
-   * ここが「順番に入っていく」演出の気持ちよさの中心。
+   * ①基礎金額。1マスぶんの加算。step が進むほど音程が上がっていく。
+   * ここが「順番に並んでいく」演出の気持ちよさの中心。単発でプレーンな音。
    */
   coin(step = 0, big = false) {
     const n = LADDER[Math.min(step, LADDER.length - 1)];
     tone({ freq: note(n), type: 'square', dur: 0.055, gain: big ? 0.34 : 0.22 });
     tone({ freq: note(n + 12), type: 'triangle', dur: 0.05, gain: big ? 0.2 : 0.12 });
+  },
+
+  /**
+   * ②特殊効果。①のコイン音とは意図的に違う音色にする
+   * ── 「値が並ぶ」①と「効果が連鎖して発動する」②を耳でも区別できるようにするため。
+   * アタック（短いクリック）＋和音的に重ねた2〜3層で「ヒットした」感を作る。
+   * index はそのスピン内で通したコンボの順番（0,1,2...）。
+   * 進むほど音程が上がり、コンボが繋がっている実感を出す。
+   */
+  combo(index = 0, big = false) {
+    const n = LADDER[Math.min(index, LADDER.length - 1)];
+    noise({ dur: 0.022, gain: 0.16, from: 4200, to: 1800, q: 5 });
+    tone({ freq: note(n), type: 'sawtooth', dur: 0.075, gain: big ? 0.3 : 0.19 });
+    tone({ freq: note(n + 7), type: 'sine', dur: 0.09, gain: big ? 0.22 : 0.13, delay: 0.014 });
+    if (big) tone({ freq: note(n + 12), type: 'triangle', dur: 0.11, gain: 0.17, delay: 0.024 });
   },
 
   /** シンボルが壊れた */

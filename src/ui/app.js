@@ -230,11 +230,12 @@ async function animateSpin(result, coinsBefore) {
   }
   clearHot();
 
-  // ── 3. 特殊効果を 1コンボずつ（1つあたり 0.5 秒） ─────
+  // ── 3. 特殊効果を 1コンボずつ（1つあたり 0.2 秒） ─────
   // エンジンが残した実行ログを再生するだけ。ここでルールを再現しない。
+  let comboIndex = 0;
   for (const beat of groupSteps(result.steps)) {
     if (skipRequested) break;
-    await playBeat(beat, shown);
+    await playBeat(beat, shown, comboIndex++);
     setGainText(`+${total().toLocaleString()}`);
   }
   clearMarks();
@@ -321,18 +322,19 @@ function groupSteps(steps) {
  * 1コンボを再生する。効果の主体と、その相手（計算に使われたシンボル）を同時に光らせる。
  *
  * 「いくら増えたか」を伝える主役は、マス上の合計バッジ（絶対値）ではなく
- * ここで飛ばす +N / ×N のポップアップ（差分）にする。0.1秒ペースだと
+ * ここで飛ばす +N / ×N のポップアップ（差分）にする。0.2秒ペースだと
  * 合計バッジの数字が「2 → 28」のように切り替わるだけでは、変化量を読み取る前に
  * 次のコンボへ進んでしまう。差分だけを独立した要素として浮かせることで、
  * 合計バッジの更新が一瞬でも「何がどれだけ増えたか」は視覚的に残る。
  */
-async function playBeat(beat, shown) {
+async function playBeat(beat, shown, comboIndex) {
   clearMarks();
   const src = cells[beat.source];
   src.root.classList.add('acting');
   markedCells.push(src.root);
 
   let sound = 'coin';
+  let bigDelta = false;
   for (const s of beat.steps) {
     for (const ci of s.causes ?? []) {
       if (ci === beat.source || cells[ci].root.classList.contains('involved')) continue;
@@ -354,6 +356,7 @@ async function playBeat(beat, shown) {
       const before = shown.get(s.target) ?? 0;
       const delta = s.after - before;
       if (delta > 0) spawnDelta(s.target, `+${delta}`, 'add');
+      if (delta >= 15) bigDelta = true;
       shown.set(s.target, s.after);
       revealCellGain(s.target, s.after);
     } else if (s.kind === 'totalMult') {
@@ -363,7 +366,7 @@ async function playBeat(beat, shown) {
 
   if (sound === 'destroy') sfx.destroy();
   else if (sound === 'multiply') sfx.multiply();
-  else sfx.coin(beat.steps.length + 3, true);
+  else sfx.combo(comboIndex, bigDelta);
 
   await wait(fast ? 0 : EFFECT_STEP_MS);
 }
