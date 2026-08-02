@@ -391,9 +391,16 @@ function burstCoins(index, amount, kind) {
   const from = centerOf(cells[index].root);
   const to = centerOf(el.gain);
   for (let i = 0; i < count; i++) {
-    setTimeout(() => flyCoin(from, to, kind, i), i * 26);
+    setTimeout(() => flyCoin(from, to, kind, i), i * COIN_STAGGER_MS);
   }
 }
+
+/**
+ * コインの生成間隔。飛行時間（COIN_SCATTER_MS + COIN_SUCK_MS）を固定にしているので、
+ * 着地の間隔もこれと同じ一定値になる ── 「規則正しい連続クリック」の気持ちよさは
+ * ランダムさではなく、この一定間隔から生まれる。
+ */
+const COIN_STAGGER_MS = 45;
 
 /** #app を基準にした要素中心の座標（コイン要素をそこに絶対配置するため） */
 function centerOf(node) {
@@ -405,12 +412,23 @@ function centerOf(node) {
 const easeOutCubic = (t) => 1 - (1 - t) ** 3;
 const easeInCubic = (t) => t * t * t;
 
+/** 飛行時間はコインごとに揺らさず固定する。理由は COIN_STAGGER_MS のコメントを参照 */
+const COIN_SCATTER_MS = 130;
+const COIN_SUCK_MS = 400;
+
 /**
  * コイン1枚ぶんのアニメーション。散らばってから吸い込まれ、自分で消える。
  * 見た目に合わせて音も鳴らす ── 弾け出る瞬間に軽い「ポッ」（coinPop）、
- * 合計へ着地した瞬間に金属的な「チンッ」（coinLand）。pitchStep は
- * 同じバーストの中の何枚目かで、着地音を少しずつ上げて払い出しの
- * 重なりを作る。
+ * 合計へ着地した瞬間に金属的な「チンッ」（coinLand）。
+ *
+ * 生成間隔（COIN_STAGGER_MS）も飛行時間（COIN_SCATTER_MS+COIN_SUCK_MS）も
+ * 固定なので、着地の間隔は生成の間隔とまったく同じ一定値になり、
+ * 生成順＝着地順が保たれる。ランダムにしていたのは散らばる方向・広がり幅
+ * （見た目の変化）だけに留め、タイミングには一切ランダムを入れない ──
+ * 「規則正しく連続で鳴る」ことがギャンブルマシーンらしい気持ちよさの核。
+ *
+ * pitchStep は同じバーストの中の何枚目かで、着地音を少しずつ上げる。
+ * 着地順が保たれているので、聞こえる音程も必ず順番どおりに上がっていく。
  */
 function flyCoin(from, to, kind, pitchStep = 0) {
   const coin = document.createElement('div');
@@ -418,23 +436,21 @@ function flyCoin(from, to, kind, pitchStep = 0) {
   el.coinLayer.appendChild(coin);
   sfx.coinPop();
 
-  // 散らばる先はランダムな短い方向。吸い込みフェーズの制御点にもなる
+  // 散らばる先はランダムな短い方向。見た目だけの揺らぎで、タイミングには影響しない
   const angle = Math.random() * Math.PI * 2;
   const spread = 16 + Math.random() * 22;
   const mid = { x: from.x + Math.cos(angle) * spread, y: from.y + Math.sin(angle) * spread - 8 };
 
-  const SCATTER_MS = 130;
-  const SUCK_MS = 360 + Math.random() * 90;
   const t0 = performance.now();
 
   const step = (t) => {
     const el0 = t - t0;
-    if (el0 < SCATTER_MS) {
-      const k = easeOutCubic(el0 / SCATTER_MS);
+    if (el0 < COIN_SCATTER_MS) {
+      const k = easeOutCubic(el0 / COIN_SCATTER_MS);
       setCoinPos(coin, lerp(from.x, mid.x, k), lerp(from.y, mid.y, k), 0.55 + k * 0.55, 1);
       requestAnimationFrame(step);
-    } else if (el0 < SCATTER_MS + SUCK_MS) {
-      const k = easeInCubic((el0 - SCATTER_MS) / SUCK_MS);
+    } else if (el0 < COIN_SCATTER_MS + COIN_SUCK_MS) {
+      const k = easeInCubic((el0 - COIN_SCATTER_MS) / COIN_SUCK_MS);
       // mid を制御点にした2次ベジェで、合計表示へ吸い込まれる弧を描く
       const x = bezier2(mid.x, (mid.x + to.x) / 2, to.x, k);
       const y = bezier2(mid.y, (mid.y + to.y) / 2, to.y, k);
