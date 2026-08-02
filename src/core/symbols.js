@@ -41,7 +41,7 @@ def({
   effects: {
     add: (c) => {
       for (const p of c.board.adjacent(c.self.index)) {
-        if (p.def.tags.includes('resident')) c.add('self', 1);
+        if (p.def.tags.includes('resident')) c.add('self', 1, p);
       }
     },
   },
@@ -70,7 +70,7 @@ def({
   effects: {
     add: (c) => {
       for (const p of c.board.adjacent(c.self.index)) {
-        if (p.def.id === 'sock') c.add('self', 4);
+        if (p.def.id === 'sock') c.add('self', 4, p);
       }
     },
   },
@@ -114,7 +114,7 @@ def({
       for (const p of c.board.adjacent(c.self.index)) {
         if (p.def.id !== 'mouse') continue;
         c.destroy(p);
-        c.add('self', 8);
+        c.add('self', 8, p);
       }
     },
   },
@@ -134,7 +134,7 @@ def({
   effects: {
     add: (c) => {
       for (const p of c.board.adjacent(c.self.index)) {
-        if (p.def.tags.includes('junk')) c.add('self', 1);
+        if (p.def.tags.includes('junk')) c.add('self', 1, p);
       }
     },
   },
@@ -166,7 +166,10 @@ def({
   id: 'umbrella', name: '傘', emoji: '☂️', rarity: 'common',
   tags: ['water'], base: 2, desc: '盤面に💧雨漏りがあると +4',
   effects: {
-    add: (c) => { if (c.board.byId('leak').length > 0) c.add('self', 4); },
+    add: (c) => {
+      const leaks = c.board.byId('leak');
+      if (leaks.length > 0) c.add('self', 4, leaks);
+    },
   },
 });
 
@@ -184,7 +187,7 @@ def({
   effects: {
     add: (c) => {
       for (const p of c.board.adjacent(c.self.index)) {
-        if (p.def.tags.includes('food')) c.add('self', 2);
+        if (p.def.tags.includes('food')) c.add('self', 2, p);
       }
     },
   },
@@ -232,8 +235,8 @@ def({
   tags: ['appliance', 'fragile'], base: 4, desc: '隣に📻ラジオがあると +8',
   effects: {
     add: (c) => {
-      const has = c.board.adjacent(c.self.index).some((p) => p.def.id === 'radio');
-      if (has) c.add('self', 8);
+      const radio = c.board.adjacent(c.self.index).find((p) => p.def.id === 'radio');
+      if (radio) c.add('self', 8, radio);
     },
   },
 });
@@ -244,7 +247,7 @@ def({
   effects: {
     add: (c) => {
       for (const p of c.board.adjacent(c.self.index)) {
-        if (p.def.tags.includes('resident')) c.add('self', 3);
+        if (p.def.tags.includes('resident')) c.add('self', 3, p);
       }
     },
   },
@@ -256,7 +259,7 @@ def({
   effects: {
     add: (c) => {
       for (const p of c.board.adjacent(c.self.index)) {
-        if (p.def.tags.includes('fragile')) c.add('self', 4);
+        if (p.def.tags.includes('fragile')) c.add('self', 4, p);
       }
     },
   },
@@ -278,7 +281,7 @@ def({
       for (const p of c.board.adjacent(c.self.index)) {
         if (p.def.id === 'broom' || !p.def.tags.includes('junk')) continue;
         c.destroy(p);
-        c.add('self', 6);
+        c.add('self', 6, p);
       }
     },
   },
@@ -300,7 +303,7 @@ def({
   effects: {
     add: (c) => {
       for (const p of c.board.adjacent(c.self.index)) {
-        if (p.def.tags.includes('resident')) c.add('self', 3);
+        if (p.def.tags.includes('resident')) c.add('self', 3, p);
       }
     },
     destroyed: (c) => { if (c.destroyer) c.add(c.destroyer, 20); },
@@ -357,9 +360,10 @@ def({
   effects: {
     // mult フェーズで動かすことで、隣の加算がすべて確定した後の値を読む
     mult: (c) => {
+      const around = c.board.adjacent(c.self.index);
       let sum = 0;
-      for (const p of c.board.adjacent(c.self.index)) sum += p.value * p.multiplier;
-      c.add('self', Math.round(sum));
+      for (const p of around) sum += p.value * p.multiplier;
+      c.add('self', Math.round(sum), around);
     },
   },
 });

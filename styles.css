@@ -194,6 +194,19 @@ body {
 .cell.dead { opacity: .28; filter: grayscale(1); }
 .cell.match { box-shadow: 0 0 0 2px var(--good) inset; }
 
+/* 演出②：いま効果を出しているシンボル */
+.cell.acting {
+  box-shadow: 0 0 0 3px var(--accent) inset, 0 0 16px rgba(232, 180, 74, .45);
+  z-index: 3;
+}
+.cell.acting .sp { animation: actingPulse .5s ease-in-out; }
+@keyframes actingPulse { 45% { transform: scale(1.18) rotate(-4deg); } }
+
+/* 演出②：その計算に使われたシンボル */
+.cell.involved { box-shadow: 0 0 0 3px var(--good) inset; }
+.cell.involved .sp { animation: involvedPulse .5s ease-in-out; }
+@keyframes involvedPulse { 45% { transform: scale(1.1); } }
+
 /* 獲得値は「枠付きのラベルがタイルの上に飛び出す」形にする。
    マスの隅に小さく置くと、いくら入ったのかが読み取れず演出の意味がなくなる。
    盤面からはみ出して隣のマスに重なってよい（重なるほど派手で、それが正しい）。 */

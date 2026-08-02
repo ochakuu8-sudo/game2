@@ -131,26 +131,26 @@ function clearBoard() {
   }
 }
 
-function paintBoard(placed, { withGains = false } = {}) {
+/**
+ * 盤面を描く。
+ * 破壊されたマスもここでは「生きている」状態で描く。
+ * 落ちてきた時点でグレーにしてしまうと、壊した側が動く前に結末が見えてしまい、
+ * 演出②の見せ場が消える。グレーにするのは実際に破壊の一手を再生したとき。
+ */
+function paintBoard(placed) {
   hotCell = null;
   for (let i = 0; i < CELLS; i++) {
     const p = placed[i];
     const c = cells[i];
+    c.gain.textContent = '';
+    c.gain.classList.remove('show', 'rise');
     if (!p) {
       c.root.className = 'cell empty';
       c.emoji.innerHTML = '';
-      c.gain.textContent = '';
       continue;
     }
-    c.root.className = 'cell' + (p.destroyed ? ' dead' : '');
+    c.root.className = 'cell';
     c.emoji.innerHTML = iconMarkup(p.def);
-    if (withGains && !p.destroyed && p.gain > 0) {
-      c.gain.textContent = p.gain;
-      c.gain.classList.add('show');
-    } else {
-      c.gain.textContent = '';
-      c.gain.classList.remove('show');
-    }
   }
 }
 
@@ -182,15 +182,18 @@ async function doSpin() {
 }
 
 /**
- * スピンの演出。
+ * スピンの演出。2段構えにする。
  *
- * 肝は「どのマスがいくら入れたのか」を 1マスずつ順に見せること。
- * まとめて出すと数字が一度に増えるだけで、シナジーを組んだ実感が残らない。
- * 順番は盤面インデックスの昇順＝左上から右下への読み順で、
- * これはエンジンの効果解決順（docs/02-game-design.md 2.3）とも一致している。
+ *   ① 基礎金額     … 盤面のシンボルの素の値を、読み順に 1マス 0.1 秒で並べる
+ *   ② 特殊効果     … 効果を持つシンボルが 1つずつ発動する。1手 0.5 秒。
+ *                     発動したシンボルと、その計算に使われたシンボルを同時に光らせる
  *
- * 全体で 1.2 秒前後に収める。マス数が多いほど 1マスあたりを詰めて、
- * 総尺が伸びないようにする。画面のどこかを触れば即スキップできる。
+ * ②で再生しているのは、エンジンが残した実行ログ（result.steps）そのもの。
+ * 演出側でルールを再現しないので、効果を足しても演出コードは変えなくてよい。
+ *
+ * 順番はどちらも盤面インデックス昇順＝左上から右下の読み順で、
+ * エンジンの効果解決順（docs/02-game-design.md 2.3）と一致している。
+ * 画面のどこかを触れば残りを一括表示してスキップできる。
  */
 async function animateSpin(result, coinsBefore) {
   skipReset();
@@ -210,34 +213,39 @@ async function animateSpin(result, coinsBefore) {
   await wait(fast ? 0 : 260);
 
   const placed = result.placed.filter(Boolean);
-  const scoring = placed.filter((p) => !p.destroyed && p.gain > 0);
+  /** 各マスにいま表示している金額 */
+  const shown = new Map();
+  const total = () => [...shown.values()].reduce((a, b) => a + b, 0);
 
-  // ── 2. 壊れたシンボルを先に見せる ──────────────────
-  // 「消えたから点が入らなかった」を、加算が始まる前に理解させる
-  const destroyed = placed.filter((p) => p.destroyed);
-  if (destroyed.length > 0 && !fast && !skipRequested) {
-    for (const p of destroyed) cells[p.index].root.classList.add('dead');
-    sfx.destroy();
-    await wait(170);
-  }
-
-  // ── 3. 1マスずつ加算 ─────────────────────────────
-  const per = fast ? 0 : clamp(620 / Math.max(1, scoring.length), 28, 95);
-  let running = 0;
+  // ── 2. 基礎金額を並べる（1マスあたり 0.1 秒固定） ──
   let step = 0;
-
-  for (const p of scoring) {
+  for (const p of placed) {
     if (skipRequested) break;
-    running += p.gain;
-    revealCellGain(p.index, p.gain);
-    setGainText(`+${running.toLocaleString()}`);
-    sfx.coin(step++, p.gain >= 40);
-    await wait(per);
+    if (p.base <= 0) continue;
+    shown.set(p.index, p.base);
+    revealCellGain(p.index, p.base);
+    setGainText(`+${total().toLocaleString()}`);
+    sfx.coin(step++);
+    await wait(fast ? 0 : BASE_STEP_MS);
   }
+  clearHot();
 
-  // 途中でスキップされた場合は、残りをまとめて出す
+  // ── 3. 特殊効果を 1手ずつ（1つあたり 0.5 秒） ──────
+  // エンジンが残した実行ログを再生するだけ。ここでルールを再現しない。
+  for (const beat of groupSteps(result.steps)) {
+    if (skipRequested) break;
+    await playBeat(beat, shown);
+    setGainText(`+${total().toLocaleString()}`);
+  }
+  clearMarks();
+
+  // スキップされた場合、または財布などの盤面外の加算ぶんを最後に合わせる
+  let running = total();
   if (running !== result.subtotal) {
-    for (const p of scoring) revealCellGain(p.index, p.gain, { silent: true });
+    for (const p of placed) {
+      if (p.destroyed) { cells[p.index].root.classList.add('dead'); continue; }
+      if (p.gain > 0) revealCellGain(p.index, p.gain, { silent: true });
+    }
     running = result.subtotal;
     setGainText(`+${running.toLocaleString()}`);
   }
@@ -264,7 +272,78 @@ async function animateSpin(result, coinsBefore) {
   await wait(fast ? 0 : 80);
 }
 
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+/**
+ * 演出のテンポ。ここだけ触れば全体の尺が変わる。
+ *
+ * ①基礎金額は 1マス 0.1 秒固定、②特殊効果は 1手 0.5 秒。
+ * 盤面が埋まって効果持ちが 10 個ある状況だと
+ * 0.1×20 + 0.5×10 = 約 7 秒／スピンになる。114スピンで約13分ぶん。
+ * 長いと感じたら EFFECT_STEP_MS を下げるか、高速モードで飛ばす。
+ */
+const BASE_STEP_MS = 100;
+const EFFECT_STEP_MS = 500;
+
+/**
+ * 実行ログを「1手」の単位にまとめる。
+ * 同じシンボルが続けて起こした操作は 1手に束ねる
+ * （ノラ猫がネズミを壊して報酬を得る一連の流れが、3手に割れないように）。
+ */
+function groupSteps(steps) {
+  const beats = [];
+  for (const s of steps ?? []) {
+    if (s.silent || s.source == null) continue;
+    const last = beats[beats.length - 1];
+    if (last && last.source === s.source) last.steps.push(s);
+    else beats.push({ source: s.source, steps: [s] });
+  }
+  return beats;
+}
+
+/** 1手を再生する。効果の主体と、計算に使われたシンボルを光らせる */
+async function playBeat(beat, shown) {
+  clearMarks();
+  const src = cells[beat.source];
+  src.root.classList.add('acting');
+  markedCells.push(src.root);
+
+  let sound = 'coin';
+  for (const s of beat.steps) {
+    for (const ci of s.causes ?? []) {
+      if (ci === beat.source) continue;
+      cells[ci].root.classList.add('involved');
+      markedCells.push(cells[ci].root);
+    }
+    if (s.kind === 'destroy') {
+      shown.delete(s.target);
+      cells[s.target].root.classList.add('dead');
+      cells[s.target].gain.classList.remove('show', 'rise');
+      cells[s.target].gain.textContent = '';
+      sound = 'destroy';
+    } else if (s.kind === 'mult') {
+      shown.set(s.target, s.after);
+      revealCellGain(s.target, s.after);
+      sound = 'multiply';
+    } else if (s.kind === 'add') {
+      shown.set(s.target, s.after);
+      revealCellGain(s.target, s.after);
+    } else if (s.kind === 'totalMult') {
+      sound = 'multiply';
+    }
+  }
+
+  if (sound === 'destroy') sfx.destroy();
+  else if (sound === 'multiply') sfx.multiply();
+  else sfx.coin(beat.steps.length + 3, true);
+
+  await wait(fast ? 0 : EFFECT_STEP_MS);
+}
+
+const markedCells = [];
+function clearMarks() {
+  for (const c of markedCells) c.classList.remove('acting', 'involved');
+  markedCells.length = 0;
+  clearHot();
+}
 
 function setGainText(text) {
   el.gain.textContent = text;

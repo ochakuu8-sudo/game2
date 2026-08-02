@@ -106,6 +106,34 @@ export function resolveSpin(state) {
   const live = () => placed.filter((p) => p && !p.destroyed);
   const ordered = () => placed.filter(Boolean);
 
+  /**
+   * 効果の実行ログ。
+   *
+   * 「どのシンボルが、どのシンボルを使って、どこにいくら足したか」を全部残す。
+   * UI はこれを読んで 1手ずつ再生するだけでよく、演出のためにルールを再実装しなくて済む。
+   * ゴールデンテスト（docs/04 4.8）の比較対象にもこれをそのまま使える。
+   */
+  const steps = [];
+
+  /**
+   * いま効果を実行している「主体」。
+   * 破壊された側の死亡時効果のような入れ子は、主体を切り替えず破壊者に紐付ける。
+   * そうしないと 1つのやり取りが複数の主体に割れて、演出が細切れになる。
+   */
+  let actor = null;
+  let phaseName = '';
+
+  const shown = (p) => Math.round(p.value * p.multiplier);
+
+  function record(step) {
+    steps.push({ source: actor?.index ?? null, phase: phaseName, ...step });
+  }
+
+  const causeIndex = (cause) => {
+    if (!cause) return null;
+    return Array.isArray(cause) ? cause.map((c) => c.index) : [cause.index];
+  };
+
   const makeCtx = (self, extra = {}) => ({
     self,
     board,
@@ -114,20 +142,28 @@ export function resolveSpin(state) {
     inventory: state.inventory,
     isEdge,
     below: (i) => board.at(below(i) ?? -1),
-    add(target, n) {
+    /** @param cause この加算の根拠になったシンボル（演出で光らせる） */
+    add(target, n, cause) {
       const t = target === 'self' ? self : target;
       if (!t || t.destroyed) return;
       t.value += n;
       t.touched = true;
       if (t !== self) self.touched = true;
+      record({ kind: 'add', target: t.index, amount: n, causes: causeIndex(cause), after: shown(t) });
     },
-    mult(target, n) {
-      if (target === 'total') { totalMultiplier *= n; self.touched = true; return; }
+    mult(target, n, cause) {
+      if (target === 'total') {
+        totalMultiplier *= n;
+        self.touched = true;
+        record({ kind: 'totalMult', target: null, factor: n, causes: causeIndex(cause) });
+        return;
+      }
       const t = target === 'self' ? self : target;
       if (!t || t.destroyed) return;
       t.multiplier *= n;
       t.touched = true;
       self.touched = true;
+      record({ kind: 'mult', target: t.index, factor: n, causes: causeIndex(cause), after: shown(t) });
     },
     destroy(target) {
       if (!target || target.destroyed) return;
@@ -135,16 +171,23 @@ export function resolveSpin(state) {
       target.destroyedBy = self.index;
       self.touched = true;
       events.push({ type: 'destroy', at: target.index, by: self.index });
+      record({ kind: 'destroy', target: target.index, causes: [target.index], after: 0 });
       const d = target.def.effects.destroyed;
+      // 死亡時効果は「壊した側の一手」として記録する（actor は切り替えない）
       if (d) d({ ...makeCtx(target), self: target, destroyer: self });
       losses.push(target.inst.uid);
     },
-    spawn(defId) { spawns.push(defId); },
+    spawn(defId) {
+      spawns.push(defId);
+      record({ kind: 'spawn', target: self.index, defId });
+    },
     addPermanent(target, n) {
       const t = target === 'self' ? self : target;
       if (!t) return;
       t.inst.permanentBonus += n;
       t.touched = true;
+      // 成長ぶんは基礎金額に含まれて表示されるので、演出では 1手として扱わない
+      record({ kind: 'addPermanent', target: t.index, amount: n, silent: true });
     },
     transform(target, defId) {
       const t = target === 'self' ? self : target;
@@ -154,6 +197,7 @@ export function resolveSpin(state) {
       t.def = getDef(defId);
       t.touched = true;
       events.push({ type: 'transform', at: t.index, to: defId });
+      record({ kind: 'transform', target: t.index, defId });
     },
     loseRandomFromInventory() {
       const pickable = state.inventory.filter((i) => !losses.includes(i.uid));
@@ -164,19 +208,25 @@ export function resolveSpin(state) {
   });
 
   const runPhase = (phase) => {
+    phaseName = phase;
     for (const p of ordered()) {
       if (p.destroyed) continue;
       const fn = p.def.effects[phase];
-      if (fn) fn(makeCtx(p));
+      if (!fn) continue;
+      actor = p;
+      fn(makeCtx(p));
     }
+    actor = null;
   };
 
   // ── Phase 1: TICK（成長・変身・産卵） ──────────────────────
   runPhase('tick');
 
   // ── Phase 2: BASE ────────────────────────────────────────
+  // ここで決まる値が演出①の「基礎金額」。成長ぶん(permanentBonus)も含む
   for (const p of ordered()) {
     p.value = p.def.base + p.inst.permanentBonus;
+    p.base = p.value;
   }
 
   // ── Phase 3-6 ────────────────────────────────────────────
@@ -210,6 +260,7 @@ export function resolveSpin(state) {
     subtotal,
     totalMultiplier,
     events,
+    steps,
     lost: losses.length,
     spawned: spawns.length,
   };
