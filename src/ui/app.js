@@ -56,10 +56,10 @@ const cells = [];
 for (let i = 0; i < CELLS; i++) {
   const c = document.createElement('div');
   c.className = 'cell empty';
-  c.innerHTML = '<span class="e"></span><span class="cell-gain"></span>';
+  c.innerHTML = '<span class="e"></span>';
   bindLongPress(c, i);
   el.board.appendChild(c);
-  cells.push({ root: c, emoji: c.querySelector('.e'), gain: c.querySelector('.cell-gain') });
+  cells.push({ root: c, emoji: c.querySelector('.e') });
 }
 
 // ───────────────────────── 起動 ─────────────────────────
@@ -129,8 +129,6 @@ function clearBoard() {
   for (const c of cells) {
     c.root.className = 'cell empty';
     c.emoji.innerHTML = '';
-    c.gain.textContent = '';
-    c.gain.classList.remove('show');
   }
 }
 
@@ -145,8 +143,6 @@ function paintBoard(placed) {
   for (let i = 0; i < CELLS; i++) {
     const p = placed[i];
     const c = cells[i];
-    c.gain.textContent = '';
-    c.gain.classList.remove('show', 'rise');
     if (!p) {
       c.root.className = 'cell empty';
       c.emoji.innerHTML = '';
@@ -187,9 +183,14 @@ async function doSpin() {
 /**
  * スピンの演出。2段構えにする。
  *
- *   ① 基礎金額     … 盤面のシンボルの素の値を、読み順に 1マス 0.1 秒で並べる
- *   ② 特殊効果     … 効果を持つシンボルが 1つずつ発動する。1手 0.5 秒。
- *                     発動したシンボルと、その計算に使われたシンボルを同時に光らせる
+ *   ① 基礎金額     … 盤面のシンボルの素の値ぶんのコインを、読み順に 1マス 0.1 秒で飛ばす
+ *   ② 特殊効果     … 効果を持つシンボルが 1つずつ発動する。1コンボ 0.2 秒。
+ *                     発動したシンボルと、その計算に使われたシンボルを同時に光らせ、
+ *                     増えたぶんのコインを飛ばす
+ *
+ * 金額は数字では出さない。マスの上にも合計にも数字バッジは置かず、
+ * 「コインが飛んで、合計表示（gain-area）へ吸い込まれる」動きと枚数だけで
+ * 増加を伝える。数字が残るのは gain-area の合計金額と、上のコイン残高だけ。
  *
  * ②で再生しているのは、エンジンが残した実行ログ（result.steps）そのもの。
  * 演出側でルールを再現しないので、効果を足しても演出コードは変えなくてよい。
@@ -220,13 +221,14 @@ async function animateSpin(result, coinsBefore) {
   const shown = new Map();
   const total = () => [...shown.values()].reduce((a, b) => a + b, 0);
 
-  // ── 2. 基礎金額を並べる（1マスあたり 0.1 秒固定） ──
+  // ── 2. 基礎金額ぶんのコインを飛ばす（1マスあたり 0.1 秒固定） ──
   let step = 0;
   for (const p of placed) {
     if (skipRequested) break;
     if (p.base <= 0) continue;
     shown.set(p.index, p.base);
-    revealCellGain(p.index, p.base);
+    pulseCell(p.index);
+    burstCoins(p.index, p.base, 'add');
     setGainText(`+${total().toLocaleString()}`);
     sfx.coin(step++);
     await wait(fast ? 0 : BASE_STEP_MS);
@@ -245,10 +247,11 @@ async function animateSpin(result, coinsBefore) {
 
   let running;
   if (skipRequested) {
-    // スキップされた場合は、残りをすべて即座に確定値へ合わせる
+    // スキップされた場合は、残りをすべて即座に確定値へ合わせる。
+    // コインを飛ばしている途中だと間に合わないので、ここでは飛ばさず
+    // 破壊されたマスをグレーにするだけにとどめる
     for (const p of placed) {
-      if (p.destroyed) { cells[p.index].root.classList.add('dead'); continue; }
-      if (p.gain > 0) revealCellGain(p.index, p.gain, { silent: true });
+      if (p.destroyed) cells[p.index].root.classList.add('dead');
     }
     running = result.subtotal;
     setGainText(`+${running.toLocaleString()}`);
@@ -324,11 +327,9 @@ function groupSteps(steps) {
 /**
  * 1コンボを再生する。効果の主体と、その相手（計算に使われたシンボル）を同時に光らせる。
  *
- * 「いくら増えたか」を伝える主役は、マス上の合計バッジ（絶対値）ではなく
- * ここで飛ばす +N / ×N のポップアップ（差分）にする。0.2秒ペースだと
- * 合計バッジの数字が「2 → 28」のように切り替わるだけでは、変化量を読み取る前に
- * 次のコンボへ進んでしまう。差分だけを独立した要素として浮かせることで、
- * 合計バッジの更新が一瞬でも「何がどれだけ増えたか」は視覚的に残る。
+ * 「いくら増えたか」は数字では出さない。増えたぶんのコインを飛ばすことだけで伝える
+ * （burstCoins）。0.2秒ペースで数字バッジを切り替えるより、飛んでいくコインの
+ * 枚数のほうが「何がどれだけ増えたか」を感覚的に残せる。
  */
 async function playBeat(beat, shown, comboIndex) {
   clearMarks();
@@ -346,21 +347,17 @@ async function playBeat(beat, shown, comboIndex) {
     if (s.kind === 'destroy') {
       shown.delete(s.target);
       cells[s.target].root.classList.add('dead');
-      cells[s.target].gain.classList.remove('show', 'rise');
-      cells[s.target].gain.textContent = '';
       sound = 'destroy';
     } else if (s.kind === 'mult') {
       const before = shown.get(s.target) ?? 0;
       burstCoins(s.target, s.after - before, 'mult');
       shown.set(s.target, s.after);
-      revealCellGain(s.target, s.after);
       sound = 'multiply';
     } else if (s.kind === 'add') {
       const before = shown.get(s.target) ?? 0;
       const delta = s.after - before;
       if (delta > 0) burstCoins(s.target, delta, 'add');
       shown.set(s.target, s.after);
-      revealCellGain(s.target, s.after);
     } else if (s.kind === 'totalMult') {
       sound = 'multiply';
     }
@@ -466,27 +463,20 @@ function setGainText(text) {
 }
 
 /**
- * 1マスぶんの獲得値を出す。
- * 枠の強調は「いま加算しているマス」だけに付ける。
+ * 「いまこのマスがカウントされている」ことを、数字を出さずに枠のハイライトと
+ * 一瞬のバウンスだけで示す。強調は「いま加算しているマス」だけに付ける ──
  * 加算済み全部に付けると、終盤には盤面のほぼ全マスが光って何も伝えなくなる。
- * 加算済みかどうかは、残る数字のほうが正確に伝えてくれる。
  */
 let hotCell = null;
 
-function revealCellGain(index, value, { silent = false } = {}) {
+function pulseCell(index) {
+  if (fast) return;
   const c = cells[index];
-  c.gain.textContent = value;
-  c.gain.classList.add('show');
-  if (silent || fast) return;
-
   if (hotCell && hotCell !== c.root) hotCell.classList.remove('hot');
   hotCell = c.root;
   c.root.classList.add('hot');
-
-  c.gain.classList.remove('rise');
   c.root.classList.remove('pop');
   void c.root.offsetWidth;
-  c.gain.classList.add('rise');
   c.root.classList.add('pop');
 }
 

@@ -208,40 +208,6 @@ body {
 .cell.involved .sp { animation: involvedPulse .2s ease-out; }
 @keyframes involvedPulse { 55% { transform: scale(1.12); } }
 
-/* 獲得値は「枠付きのラベルがタイルの上に飛び出す」形にする。
-   マスの隅に小さく置くと、いくら入ったのかが読み取れず演出の意味がなくなる。
-   盤面からはみ出して隣のマスに重なってよい（重なるほど派手で、それが正しい）。 */
-.cell-gain {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  transform: translate(-50%, -50%);
-  z-index: 2;
-  padding: .1em .44em .14em;
-  border-radius: 999px;
-  border: 2px solid var(--sp-ink);
-  background: linear-gradient(180deg, #f6d888, var(--accent));
-  color: #2a1c08;
-  font-size: .5em;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-  white-space: nowrap;
-  box-shadow: 0 2px 0 rgba(0,0,0,.35);
-  pointer-events: none;
-  opacity: 0;
-}
-.cell-gain.show { opacity: 1; }
-/* いま加算されたラベルは、隣のラベルより手前に出す */
-.cell.hot .cell-gain { z-index: 5; }
-
-.cell-gain.rise { animation: gainRise .22s cubic-bezier(.2,.9,.3,1.4); }
-@keyframes gainRise {
-  0%   { transform: translate(-50%, 18%) scale(.4); opacity: 0; }
-  50%  { transform: translate(-50%, -66%) scale(1.24); opacity: 1; background: #fff2c9; }
-  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-}
-
 /*
  * コインが飛び散って合計表示へ吸い込まれる演出。
  * マス上の合計バッジは「今いくらか」という絶対値。「いくら増えたか」は
@@ -507,10 +473,7 @@ body {
   .sheet, .overlay { animation: none; }
   .rent-fill { transition: none; }
   .cell.acting .sp, .cell.involved .sp { animation: none; }
-  .cell-gain.rise { animation: none; }
-  .delta-pop { animation: fadeIn .12s both, deltaFadeOnly .6s .12s forwards; }
 }
-@keyframes deltaFadeOnly { to { opacity: 0; } }
 
 /* 背の低い端末（iPhone SE 等）では詰める */
 @media (max-height: 700px) {
