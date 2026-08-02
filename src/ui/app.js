@@ -405,7 +405,7 @@ function burstCoins(index, amount, kind) {
 
   const from = centerOf(cells[index].root);
   for (let i = 0; i < count; i++) {
-    setTimeout(() => spawnCoin(from, kind), i * COIN_STAGGER_MS);
+    setTimeout(() => spawnCoin(from, kind, count), i * COIN_STAGGER_MS);
   }
 }
 
@@ -457,8 +457,15 @@ let activeCoins = new Set();
  */
 let absorbing = null; // null か { to, nextSlotAt }
 
-/** コイン1枚を生成し、散らばるところまでを再生する */
-function spawnCoin(from, kind) {
+/**
+ * コイン1枚を生成し、散らばるところまでを再生する。
+ * 散らばりの半径は、そのバーストで出たコインの枚数（count）に比例させる。
+ * 1枚だけの時に今までどおりの半径で弾けると、マス1つに対して散らばりが
+ * 大げさすぎて見える。逆に10枚くらいまとめて出た時は、今までの半径感が
+ * ちょうどよい「ドサッ」に見える。count=10で今までどおりの半径になり、
+ * それ以上は頭打ち（10枚を超えても際限なく広がると盤面をはみ出すため）。
+ */
+function spawnCoin(from, kind, count = 1) {
   const coin = document.createElement('div');
   coin.className = `coin-fly coin-fly-${kind}`;
   el.coinLayer.appendChild(coin);
@@ -466,9 +473,10 @@ function spawnCoin(from, kind) {
   sfx.coinPop();
 
   // 散らばる先はランダムな短い方向。見た目だけの揺らぎで、タイミングには影響しない
+  const scale = Math.min(1, count / 10);
   const angle = Math.random() * Math.PI * 2;
-  const spread = 16 + Math.random() * 22;
-  const rest = { x: from.x + Math.cos(angle) * spread, y: from.y + Math.sin(angle) * spread - 8 };
+  const spread = (16 + Math.random() * 22) * scale;
+  const rest = { x: from.x + Math.cos(angle) * spread, y: from.y + Math.sin(angle) * spread - 8 * scale };
 
   const t0 = performance.now();
   const scatterStep = (t) => {
