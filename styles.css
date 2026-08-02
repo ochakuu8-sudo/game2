@@ -194,22 +194,38 @@ body {
 .cell.dead { opacity: .28; filter: grayscale(1); }
 .cell.match { box-shadow: 0 0 0 2px var(--good) inset; }
 
+/* 獲得値は「枠付きのラベルがタイルの上に飛び出す」形にする。
+   マスの隅に小さく置くと、いくら入ったのかが読み取れず演出の意味がなくなる。
+   盤面からはみ出して隣のマスに重なってよい（重なるほど派手で、それが正しい）。 */
 .cell-gain {
-  position: absolute; right: 2px; bottom: 1px;
-  font-size: min(3.1cqw, 2.6cqh);
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  padding: .1em .44em .14em;
+  border-radius: 999px;
+  border: 2px solid var(--sp-ink);
+  background: linear-gradient(180deg, #f6d888, var(--accent));
+  color: #2a1c08;
+  font-size: .5em;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-  color: var(--accent);
-  text-shadow: 0 1px 2px rgba(0,0,0,.5);
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 2px 0 rgba(0,0,0,.35);
+  pointer-events: none;
   opacity: 0;
 }
-.cell-gain.show { opacity: 1; transition: opacity .1s; }
-/* 加算された瞬間、数字がふわっと持ち上がる */
-.cell-gain.rise { animation: gainRise .26s ease-out; }
+.cell-gain.show { opacity: 1; }
+/* いま加算されたラベルは、隣のラベルより手前に出す */
+.cell.hot .cell-gain { z-index: 5; }
+
+.cell-gain.rise { animation: gainRise .3s cubic-bezier(.2,.9,.3,1.35); }
 @keyframes gainRise {
-  from { transform: translateY(5px) scale(.55); opacity: 0; }
-  60%  { transform: translateY(-2px) scale(1.2); opacity: 1; }
-  to   { transform: none; opacity: 1; }
+  0%   { transform: translate(-50%, 18%) scale(.35); opacity: 0; }
+  55%  { transform: translate(-50%, -64%) scale(1.16); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
 }
 
 /* ───────────────── 獲得表示 ───────────────── */
