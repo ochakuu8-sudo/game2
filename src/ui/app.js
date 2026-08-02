@@ -286,10 +286,10 @@ async function animateSpin(result, coinsBefore) {
 
 /**
  * 演出のテンポ。ここだけ触れば全体の尺が変わる。
- * ①基礎金額・②特殊効果、どちらも 1つあたり 0.1 秒固定。
+ * ①基礎金額は 1マス 0.1 秒、②特殊効果は 1コンボ 0.2 秒。
  */
 const BASE_STEP_MS = 100;
-const EFFECT_STEP_MS = 100;
+const EFFECT_STEP_MS = 200;
 
 /**
  * 実行ログを「1コンボ」の単位にまとめる。

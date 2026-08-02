@@ -195,17 +195,17 @@ body {
 .cell.match { box-shadow: 0 0 0 2px var(--good) inset; }
 
 /* 演出②：いま効果を出しているシンボル。
-   1コンボ 0.1秒ペースなので、パルスも同じ尺に収めて次のコンボと衝突させない。 */
+   1コンボ 0.2秒ペースなので、パルスも同じ尺に収めて次のコンボと衝突させない。 */
 .cell.acting {
   box-shadow: 0 0 0 3px var(--accent) inset, 0 0 16px rgba(232, 180, 74, .45);
   z-index: 3;
 }
-.cell.acting .sp { animation: actingPulse .16s ease-out; }
+.cell.acting .sp { animation: actingPulse .2s ease-out; }
 @keyframes actingPulse { 55% { transform: scale(1.22) rotate(-4deg); } }
 
 /* 演出②：その計算に使われたシンボル */
 .cell.involved { box-shadow: 0 0 0 3px var(--good) inset; }
-.cell.involved .sp { animation: involvedPulse .16s ease-out; }
+.cell.involved .sp { animation: involvedPulse .2s ease-out; }
 @keyframes involvedPulse { 55% { transform: scale(1.12); } }
 
 /* 獲得値は「枠付きのラベルがタイルの上に飛び出す」形にする。
