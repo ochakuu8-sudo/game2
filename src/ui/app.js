@@ -286,14 +286,10 @@ async function animateSpin(result, coinsBefore) {
 
 /**
  * 演出のテンポ。ここだけ触れば全体の尺が変わる。
- *
- * ①基礎金額は 1マス 0.1 秒固定、②特殊効果は 1手 0.5 秒。
- * 盤面が埋まって効果持ちが 10 個ある状況だと
- * 0.1×20 + 0.5×10 = 約 7 秒／スピンになる。114スピンで約13分ぶん。
- * 長いと感じたら EFFECT_STEP_MS を下げるか、高速モードで飛ばす。
+ * ①基礎金額・②特殊効果、どちらも 1つあたり 0.1 秒固定。
  */
 const BASE_STEP_MS = 100;
-const EFFECT_STEP_MS = 500;
+const EFFECT_STEP_MS = 100;
 
 /**
  * 実行ログを「1コンボ」の単位にまとめる。
@@ -321,7 +317,15 @@ function groupSteps(steps) {
   return beats;
 }
 
-/** 1コンボを再生する。効果の主体と、その相手（計算に使われたシンボル）を同時に光らせる */
+/**
+ * 1コンボを再生する。効果の主体と、その相手（計算に使われたシンボル）を同時に光らせる。
+ *
+ * 「いくら増えたか」を伝える主役は、マス上の合計バッジ（絶対値）ではなく
+ * ここで飛ばす +N / ×N のポップアップ（差分）にする。0.1秒ペースだと
+ * 合計バッジの数字が「2 → 28」のように切り替わるだけでは、変化量を読み取る前に
+ * 次のコンボへ進んでしまう。差分だけを独立した要素として浮かせることで、
+ * 合計バッジの更新が一瞬でも「何がどれだけ増えたか」は視覚的に残る。
+ */
 async function playBeat(beat, shown) {
   clearMarks();
   const src = cells[beat.source];
@@ -342,10 +346,14 @@ async function playBeat(beat, shown) {
       cells[s.target].gain.textContent = '';
       sound = 'destroy';
     } else if (s.kind === 'mult') {
+      spawnDelta(s.target, `×${s.factor}`, 'mult');
       shown.set(s.target, s.after);
       revealCellGain(s.target, s.after);
       sound = 'multiply';
     } else if (s.kind === 'add') {
+      const before = shown.get(s.target) ?? 0;
+      const delta = s.after - before;
+      if (delta > 0) spawnDelta(s.target, `+${delta}`, 'add');
       shown.set(s.target, s.after);
       revealCellGain(s.target, s.after);
     } else if (s.kind === 'totalMult') {
@@ -358,6 +366,25 @@ async function playBeat(beat, shown) {
   else sfx.coin(beat.steps.length + 3, true);
 
   await wait(fast ? 0 : EFFECT_STEP_MS);
+}
+
+/**
+ * +N / ×N の差分ポップアップを 1つ生成する。
+ * 使い捨ての要素として作り、アニメーション終了で自分から消える。
+ * コンボの間隔（0.1秒）より寿命が長いので、連続するコンボの分が
+ * 画面上に何個も重なって浮かぶ ── それによって「勢いよく積み上がっている」
+ * ことが一目でわかる。
+ */
+function spawnDelta(index, text, kind) {
+  if (fast) return;
+  const host = cells[index].root;
+  const el = document.createElement('span');
+  el.className = `delta-pop delta-${kind}`;
+  el.textContent = text;
+  // 同じマスで連続して出た時に完全に重ならないよう、わずかに横へ散らす
+  el.style.setProperty('--jx', `${(Math.random() * 16 - 8).toFixed(1)}px`);
+  host.appendChild(el);
+  el.addEventListener('animationend', () => el.remove(), { once: true });
 }
 
 const markedCells = [];
