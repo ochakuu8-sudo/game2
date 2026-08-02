@@ -410,8 +410,12 @@ function burstCoins(index, amount, kind) {
 const COIN_STAGGER_MS = 45;
 const COIN_SCATTER_MS = 130;
 const COIN_SUCK_MS = 400;
-/** 最後の一斉回収で、コインを吸い込み始めるタイミングをずらす間隔（0なら全員同時） */
-const ABSORB_STAGGER_MS = 16;
+/**
+ * 最後の一斉回収で、コインを吸い込み始めるタイミングをずらす間隔。
+ * 小さすぎる（例: 16ms）と複数枚がほぼ同時に着地してしまい、音が1つの塊に
+ * 潰れて聞こえる。「1枚ずつ、ジャラッ、ジャラッ」と聞き取れる間隔まで開ける。
+ */
+const ABSORB_STAGGER_MS = 65;
 
 /** #app を基準にした要素中心の座標（コイン要素をそこに絶対配置するため） */
 function centerOf(node) {
@@ -436,15 +440,19 @@ let activeCoins = new Set();
 
 /**
  * 「吸収はもう始まっているか」の状態。
+ * nextSlotAt は「次にコインを出発させてよい絶対時刻」で、1枚出発させるたびに
+ * ABSORB_STAGGER_MS だけ先へ進める。これにより、最初からあったコインも、
+ * 後から遅れて散らばり終えたコイン（下記コメント参照）も、**同じ規則正しい
+ * 間隔のスケジュールに乗る**。合流のたびに独自のタイミングで出発させてしまうと、
+ * その部分だけ間隔が乱れて「ジャラッ、ジャラッ」のリズムが崩れる。
  *
  * 大きめのバースト（最大7枚・生成間隔45ms）は、最後の1枚が散らばり終えるまで
  * 最大 6×45+130=400ms かかる。一方コンボの間隔は0.2秒なので、直前のコンボの
  * バーストがまだ散らばり終えていないうちに absorbAllCoins() が呼ばれることがある。
  * その場合に「まだ散らばり中だったコイン」を取りこぼさないよう、absorbAllCoins()
- * 呼び出し後に散らばり終えたコインは、ここを見て「もう吸収は始まっているなら
- * 即座に自分も合流する」ようにする。
+ * 呼び出し後に散らばり終えたコインも、この共有スケジュールに乗せて出発させる。
  */
-let absorbing = null; // null か { to, nextPitch }
+let absorbing = null; // null か { to, nextPitch, nextSlotAt }
 
 /** コイン1枚を生成し、散らばるところまでを再生する */
 function spawnCoin(from, kind) {
@@ -465,27 +473,39 @@ function spawnCoin(from, kind) {
     const k = easeOutCubic(Math.min(1, (t - t0) / COIN_SCATTER_MS));
     setCoinPos(coin, lerp(from.x, rest.x, k), lerp(from.y, rest.y, k), 0.55 + k * 0.55, 1);
     if (k < 1) { requestAnimationFrame(scatterStep); return; }
-    if (absorbing) suckIn(coin, rest, absorbing.to, absorbing.nextPitch++);
+    if (absorbing) scheduleAbsorb(coin, rest);
     else scatteredCoins.push({ el: coin, x: rest.x, y: rest.y });
   };
   requestAnimationFrame(scatterStep);
 }
 
 /**
- * その時点までに散らばって待機している全コインを、合計表示へ一斉に吸い込む。
- * 開始タイミングはコインごとにごくわずかにずらす（ABSORB_STAGGER_MS）だけで、
- * 大量に溜まっていても瞬間的な音の壁にならないようにする。
- * pitchStep は吸い込み開始順そのままなので、聞こえる音程は順番どおりに動く。
+ * その時点までに散らばって待機している全コインを、合計表示へ吸い込む。
+ * 1枚ずつ ABSORB_STAGGER_MS の等間隔で吸い込み始めることで、
+ * 「ジャラッ、ジャラッ、ジャラッ」と1枚ずつ聞き分けられる連続音にする。
+ * pitchStep は吸い込み開始順そのままなので、聞こえる音程も順番どおりに動く。
  * 呼び出し後に散らばり終える遅れてきたコインも absorbing フラグを見て自動的に合流する。
  */
 function absorbAllCoins() {
   const coins = scatteredCoins;
   scatteredCoins = [];
-  const to = centerOf(el.gain);
-  absorbing = { to, nextPitch: coins.length };
-  coins.forEach((c, i) => {
-    setTimeout(() => suckIn(c.el, { x: c.x, y: c.y }, to, i), i * ABSORB_STAGGER_MS);
-  });
+  absorbing = { to: centerOf(el.gain), nextPitch: 0, nextSlotAt: performance.now() };
+  for (const c of coins) scheduleAbsorb(c.el, { x: c.x, y: c.y });
+}
+
+/**
+ * コイン1枚を、共有スケジュールの「次の出発枠」に乗せて吸い込ませる。
+ * to は必ずローカル変数に取ってから setTimeout の中で使うこと ── absorbing は
+ * 次のスピン開始時に null へリセットされる（animateSpin 冒頭）ので、
+ * コールバックの中で `absorbing.to` を直接読むと、そのスピンの吸収が
+ * 終わり切る前に次のスピンが始まった場合に落ちる。
+ */
+function scheduleAbsorb(coinEl, restPos) {
+  const { to } = absorbing;
+  const delay = Math.max(0, absorbing.nextSlotAt - performance.now());
+  const pitchStep = absorbing.nextPitch++;
+  absorbing.nextSlotAt += ABSORB_STAGGER_MS;
+  setTimeout(() => suckIn(coinEl, restPos, to, pitchStep), delay);
 }
 
 /**
