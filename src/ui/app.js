@@ -377,30 +377,38 @@ async function playBeat(beat, shown, comboIndex) {
  * 何十枚も生成することになり重くなる上に画面が埋まって見づらくなる）。
  * 1〜7枚に収め、視覚的な「量」の目安として十分な範囲に留める。
  *
- * コインは①散らばる → ②合計表示（gain-area の +XX）へ吸い込まれる、の
- * 2段階。②は combo の間隔（0.2秒）より長く飛び続けるので、次のコンボが
- * 始まっても前のコインは飛んでいる ── それが「連続して稼いでいる」勢いになる。
- * 演出をブロックしない（await しない）のはそのため。
+ * 流れは3段階：①その場に枚数を「×N」で一瞬表示 → ②全員が思い思いの方向へ
+ * 散らばり、そこで静止して待つ → ③**全員の散らばりが終わってから**、
+ * 一斉に合計表示（gain-area の +XX）へ吸い込まれる。②③を1コインずつ
+ * 独立させず全体で足並みを揃えるのは、「バラバラ吸い込まれる」より
+ * 「せーので回収される」ほうが1つのまとまった演出として気持ちいいため。
+ *
+ * このバースト全体（演出をブロックしない＝await しない）は、次のコンボが
+ * 始まっても並行して動き続ける。それが「連続して稼いでいる」勢いになる。
  */
 function burstCoins(index, amount, kind) {
   // コインの飛翔は CSS アニメーションではなく JS の rAF で動かしているので、
   // styles.css の prefers-reduced-motion だけでは止まらない。ここで別途弾く。
-  // 情報としては欠落しない ── マス上の合計バッジは変わらず更新されるため。
+  // 情報としては欠落しない ── gain-area の合計金額は変わらず更新されるため。
   if (fast || amount <= 0 || REDUCED_MOTION) return;
   const count = Math.max(1, Math.min(7, Math.round(Math.sqrt(amount) * 1.3)));
+  showCoinCount(index, count);
+
   const from = centerOf(cells[index].root);
   const to = centerOf(el.gain);
+  // 最後（count-1枚目）が散らばり終わる時刻を先に決めておき、
+  // 全コインがこの時刻に足並みを揃えて吸い込みへ移る
+  const scatterAllDoneAt = performance.now() + (count - 1) * COIN_STAGGER_MS + COIN_SCATTER_MS;
+
   for (let i = 0; i < count; i++) {
-    setTimeout(() => flyCoin(from, to, kind, i), i * COIN_STAGGER_MS);
+    setTimeout(() => spawnCoin(from, to, kind, i, scatterAllDoneAt), i * COIN_STAGGER_MS);
   }
 }
 
-/**
- * コインの生成間隔。飛行時間（COIN_SCATTER_MS + COIN_SUCK_MS）を固定にしているので、
- * 着地の間隔もこれと同じ一定値になる ── 「規則正しい連続クリック」の気持ちよさは
- * ランダムさではなく、この一定間隔から生まれる。
- */
+/** コインの生成間隔。散らばり方向にはランダム性があるが、時間軸は常に固定。 */
 const COIN_STAGGER_MS = 45;
+const COIN_SCATTER_MS = 130;
+const COIN_SUCK_MS = 400;
 
 /** #app を基準にした要素中心の座標（コイン要素をそこに絶対配置するため） */
 function centerOf(node) {
@@ -412,25 +420,11 @@ function centerOf(node) {
 const easeOutCubic = (t) => 1 - (1 - t) ** 3;
 const easeInCubic = (t) => t * t * t;
 
-/** 飛行時間はコインごとに揺らさず固定する。理由は COIN_STAGGER_MS のコメントを参照 */
-const COIN_SCATTER_MS = 130;
-const COIN_SUCK_MS = 400;
-
 /**
- * コイン1枚ぶんのアニメーション。散らばってから吸い込まれ、自分で消える。
- * 見た目に合わせて音も鳴らす ── 弾け出る瞬間に軽い「ポッ」（coinPop）、
- * 合計へ着地した瞬間に金属的な「チンッ」（coinLand）。
- *
- * 生成間隔（COIN_STAGGER_MS）も飛行時間（COIN_SCATTER_MS+COIN_SUCK_MS）も
- * 固定なので、着地の間隔は生成の間隔とまったく同じ一定値になり、
- * 生成順＝着地順が保たれる。ランダムにしていたのは散らばる方向・広がり幅
- * （見た目の変化）だけに留め、タイミングには一切ランダムを入れない ──
- * 「規則正しく連続で鳴る」ことがギャンブルマシーンらしい気持ちよさの核。
- *
- * pitchStep は同じバーストの中の何枚目かで、着地音を少しずつ上げる。
- * 着地順が保たれているので、聞こえる音程も必ず順番どおりに上がっていく。
+ * コイン1枚を生成し、まず散らばりだけを再生する。
+ * 散らばり終わったら absorbAt まで静止して待ち、そこで waitThenSuck に渡す。
  */
-function flyCoin(from, to, kind, pitchStep = 0) {
+function spawnCoin(from, to, kind, pitchStep, absorbAt) {
   const coin = document.createElement('div');
   coin.className = `coin-fly coin-fly-${kind}`;
   el.coinLayer.appendChild(coin);
@@ -439,21 +433,42 @@ function flyCoin(from, to, kind, pitchStep = 0) {
   // 散らばる先はランダムな短い方向。見た目だけの揺らぎで、タイミングには影響しない
   const angle = Math.random() * Math.PI * 2;
   const spread = 16 + Math.random() * 22;
-  const mid = { x: from.x + Math.cos(angle) * spread, y: from.y + Math.sin(angle) * spread - 8 };
+  const rest = { x: from.x + Math.cos(angle) * spread, y: from.y + Math.sin(angle) * spread - 8 };
 
   const t0 = performance.now();
+  const scatterStep = (t) => {
+    const k = easeOutCubic(Math.min(1, (t - t0) / COIN_SCATTER_MS));
+    setCoinPos(coin, lerp(from.x, rest.x, k), lerp(from.y, rest.y, k), 0.55 + k * 0.55, 1);
+    if (k < 1) requestAnimationFrame(scatterStep);
+    else waitThenSuck(coin, rest, to, absorbAt, pitchStep);
+  };
+  requestAnimationFrame(scatterStep);
+}
 
+/** 散らばり終えた位置で静止したまま、他のコインが追いつくのを待つ */
+function waitThenSuck(coin, restPos, to, absorbAt, pitchStep) {
+  const check = (t) => {
+    if (t < absorbAt) requestAnimationFrame(check);
+    else suckIn(coin, restPos, to, pitchStep);
+  };
+  requestAnimationFrame(check);
+}
+
+/**
+ * 静止していたコインを、合計表示へ一斉に吸い込む。
+ * 開始時刻・所要時間ともに全コイン共通なので、着地（＝音が鳴る瞬間）も
+ * 全員そろう ── バラけて鳴るより、まとまった「ジャラッ」という一撃になる。
+ */
+function suckIn(coin, from, to, pitchStep) {
+  const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+  const t0 = performance.now();
   const step = (t) => {
     const el0 = t - t0;
-    if (el0 < COIN_SCATTER_MS) {
-      const k = easeOutCubic(el0 / COIN_SCATTER_MS);
-      setCoinPos(coin, lerp(from.x, mid.x, k), lerp(from.y, mid.y, k), 0.55 + k * 0.55, 1);
-      requestAnimationFrame(step);
-    } else if (el0 < COIN_SCATTER_MS + COIN_SUCK_MS) {
-      const k = easeInCubic((el0 - COIN_SCATTER_MS) / COIN_SUCK_MS);
+    if (el0 < COIN_SUCK_MS) {
+      const k = easeInCubic(el0 / COIN_SUCK_MS);
       // mid を制御点にした2次ベジェで、合計表示へ吸い込まれる弧を描く
-      const x = bezier2(mid.x, (mid.x + to.x) / 2, to.x, k);
-      const y = bezier2(mid.y, (mid.y + to.y) / 2, to.y, k);
+      const x = bezier2(from.x, mid.x, to.x, k);
+      const y = bezier2(from.y, mid.y, to.y, k);
       setCoinPos(coin, x, y, 1.1 - k * 0.95, 1 - k * 0.85);
       requestAnimationFrame(step);
     } else {
@@ -462,6 +477,20 @@ function flyCoin(from, to, kind, pitchStep = 0) {
     }
   };
   requestAnimationFrame(step);
+}
+
+/**
+ * そのマスから出たコインの枚数を、スコア風のフォントで一瞬表示する。
+ * 金額（円）ではなく「何枚出たか」という見た目の量だけを示す軽い添え物。
+ * 使い捨てのDOM要素として都度生成し、アニメーション終了で自分から消える。
+ */
+function showCoinCount(index, count) {
+  const host = cells[index].root;
+  const badge = document.createElement('span');
+  badge.className = 'coin-count';
+  badge.textContent = `×${count}`;
+  host.appendChild(badge);
+  badge.addEventListener('animationend', () => badge.remove(), { once: true });
 }
 
 function setCoinPos(node, x, y, scale, opacity) {
