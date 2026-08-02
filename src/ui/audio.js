@@ -103,16 +103,20 @@ const LADDER = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31, 33, 36];
 const note = (semitone) => 440 * Math.pow(2, semitone / 12);
 
 /**
- * 金額の大きさを 0〜4 の5段階に落とす。
- * 「音だけで大きい金額とわかる」ためには、真偽値では足りない。
- * 家賃10期前後の1マスの値（数十〜100超）まで見越して、対数的に境界を切る。
+ * 金額の大きさを 0〜1 の連続値に変換する。段階（tier）は使わない。
+ *
+ * 音量・和音の混ざり具合・ノイズの明るさは、すべてこの値に「比例」させる。
+ * 境界を切ってカクッと変わる作りだと、例えば 24 と 25 が別物に聞こえるのに
+ * 25 と 55 が同じに聞こえる、という不自然さが出る。この値は amount が
+ * 1増えるごとに必ずわずかに動くので、そういう不連続な段差が起きない。
+ *
+ * 金額は 1 〜 数百まで幅があるため、線形ではなく対数で圧縮する
+ * （線形だと 1〜10 の違いが埋もれ、100超えの差だけが支配的になってしまう）。
+ * CAP 付近の金額でほぼ最大の派手さに達する。
  */
-function tierFor(amount) {
-  if (amount >= 60) return 4;
-  if (amount >= 25) return 3;
-  if (amount >= 10) return 2;
-  if (amount >= 4) return 1;
-  return 0;
+function sizeFactor(amount) {
+  const CAP = 120;
+  return Math.min(1, Math.max(0, Math.log(amount + 1) / Math.log(CAP + 1)));
 }
 
 // ───────────────────────── 効果音 ─────────────────────────
@@ -136,17 +140,18 @@ export const sfx = {
 
   /**
    * ①基礎金額。1マスぶんの加算。step が進むほど音程が上がっていく
-   * （＝マスの並び順の音階）のに加えて、amount が大きいほど段階的に厚みが増す
+   * （＝マスの並び順の音階）のに加えて、amount が大きいほど連続的に厚みが増す
    * （＝その1マスの金額そのものの派手さ）。2つの軸は独立している。
    */
   coin(step = 0, amount = 0) {
     const n = LADDER[Math.min(step, LADDER.length - 1)];
-    const tier = tierFor(amount);
-    tone({ freq: note(n), type: 'square', dur: 0.05 + tier * 0.008, gain: 0.18 + tier * 0.045 });
-    tone({ freq: note(n + 12), type: 'triangle', dur: 0.045, gain: 0.1 + tier * 0.03 });
-    if (tier >= 2) tone({ freq: note(n + 19), type: 'triangle', dur: 0.06, gain: 0.13, delay: 0.02 });
-    if (tier >= 3) noise({ dur: 0.05, gain: 0.14, from: 5200, to: 2600, q: 2 });
-    if (tier >= 4) tone({ freq: note(n + 24), type: 'sawtooth', dur: 0.09, gain: 0.18, delay: 0.032 });
+    const k = sizeFactor(amount);
+    tone({ freq: note(n), type: 'square', dur: 0.05 + k * 0.025, gain: 0.16 + k * 0.26 });
+    tone({ freq: note(n + 12), type: 'triangle', dur: 0.045, gain: 0.08 + k * 0.2 });
+    // 上の倍音・ノイズは常に鳴っているが、k が低いとほぼ聞こえない音量から
+    // 連続的に立ち上がる（オンオフの切り替えではない）
+    tone({ freq: note(n + 19), type: 'triangle', dur: 0.06, gain: k * k * 0.2, delay: 0.02 });
+    if (k > 0.3) noise({ dur: 0.04 + k * 0.03, gain: (k - 0.3) * 0.3, from: 3200 + k * 3000, to: 2000, q: 2 });
   },
 
   /**
@@ -156,20 +161,27 @@ export const sfx = {
    *
    * index はそのスピン内で通したコンボの順番（音程を積み上げる軸）。
    * amount はそのコンボで実際に増えた金額（派手さを積み上げる軸）。
-   * 「音だけで大きい金額が当たったとわかる」を担うのは amount 側で、
-   * tier が上がるごとに 音量・和音の層数・アタックのノイズ質感 が明確に変わる。
+   * 「音だけで大きい金額が当たったとわかる」を担うのは amount 側 ──
+   * sizeFactor() で 0〜1 に均した k を、音量・和音の混ざり具合・ノイズの
+   * 明るさすべてに比例させる。境界で切り替わる箇所は無い。
    */
   combo(index = 0, amount = 0) {
     const n = LADDER[Math.min(index, LADDER.length - 1)];
-    const tier = tierFor(amount);
-    noise({ dur: 0.02 + tier * 0.012, gain: 0.13 + tier * 0.035, from: 4200, to: 1800, q: 5 });
-    tone({ freq: note(n), type: 'sawtooth', dur: 0.07 + tier * 0.01, gain: 0.16 + tier * 0.045 });
-    tone({ freq: note(n + 7), type: 'sine', dur: 0.09, gain: 0.1 + tier * 0.035, delay: 0.014 });
-    if (tier >= 2) tone({ freq: note(n + 12), type: 'triangle', dur: 0.1, gain: 0.16, delay: 0.026 });
-    if (tier >= 3) tone({ freq: note(n + 16), type: 'triangle', dur: 0.11, gain: 0.15, delay: 0.038 });
-    if (tier >= 4) {
-      noise({ dur: 0.09, gain: 0.24, from: 6000, to: 700, q: 1.6, delay: 0.01 });
-      tone({ freq: note(n + 24), type: 'sawtooth', dur: 0.13, gain: 0.2, delay: 0.05 });
+    const k = sizeFactor(amount);
+    noise({
+      dur: 0.02 + k * 0.06, gain: 0.08 + k * 0.3,
+      from: 3500 + k * 3500, to: 2000 - k * 900, q: 5 - k * 2.5,
+    });
+    tone({ freq: note(n), type: 'sawtooth', dur: 0.07 + k * 0.05, gain: 0.13 + k * 0.28 });
+    tone({ freq: note(n + 7), type: 'sine', dur: 0.09, gain: 0.07 + k * 0.24, delay: 0.014 });
+    // 上に積む倍音ほど、k が高い領域でだけ意味のある音量になる
+    // （k^2, k^3 で立ち上がりを遅らせ、序盤の地味なコンボでは鳴らない）
+    tone({ freq: note(n + 12), type: 'triangle', dur: 0.1, gain: k * k * 0.32, delay: 0.026 });
+    tone({ freq: note(n + 16), type: 'triangle', dur: 0.11, gain: k * k * k * 0.3, delay: 0.038 });
+    if (k > 0.6) {
+      const j = (k - 0.6) / 0.4; // 0.6〜1.0 を 0〜1 に引き伸ばす
+      noise({ dur: 0.06 + j * 0.05, gain: j * 0.3, from: 6000, to: 700, q: 1.6, delay: 0.01 });
+      tone({ freq: note(n + 24), type: 'sawtooth', dur: 0.1 + j * 0.05, gain: j * 0.24, delay: 0.05 });
     }
   },
 
