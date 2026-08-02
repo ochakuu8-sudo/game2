@@ -1,0 +1,11 @@
+{
+  "name": "lucky-heights",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "スロット × ローグライクデッキビルド。スマホ縦持ちブラウザゲームの試作。",
+  "scripts": {
+    "dev": "npx --yes http-server -p 5173 -c-1 .",
+    "sim": "node sim/run.mjs"
+  }
+}

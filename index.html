@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#1a1613">
+<meta name="description" content="築40年のボロアパートでスロットを回して家賃を稼ぐ、スロット×ローグライクデッキビルド。">
+<title>ラッキーハイツ 202号室</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎰</text></svg>">
+</head>
+<body>
+<div id="app" class="app">
+
+  <!-- ───────── ヘッダ ───────── -->
+  <header class="topbar">
+    <div class="topbar-row">
+      <div class="period">
+        <span class="period-label">第</span><span id="period-num">1</span><span class="period-label">期</span>
+      </div>
+      <div id="spin-dots" class="spin-dots" aria-label="残りスピン"></div>
+      <button id="btn-menu" class="icon-btn" aria-label="メニュー">☰</button>
+    </div>
+    <div class="rent-row">
+      <div class="rent-bar" role="img" aria-label="家賃の進捗">
+        <div id="rent-fill" class="rent-fill"></div>
+        <div class="rent-text">
+          <span class="rent-label">家賃</span>
+          <span id="rent-amount">25</span>
+          <span id="rent-short" class="rent-short"></span>
+        </div>
+      </div>
+      <div class="coins">
+        <span class="coin-icon">💰</span><span id="coins">0</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ───────── 盤面 ───────── -->
+  <main class="board-area">
+    <div id="board" class="board" aria-label="スロット盤面"></div>
+  </main>
+
+  <!-- ───────── 獲得表示 ───────── -->
+  <div class="gain-area">
+    <div id="gain" class="gain"></div>
+  </div>
+
+  <!-- ───────── 操作 ───────── -->
+  <footer class="controls">
+    <button id="btn-spin" class="spin-btn">スピン</button>
+    <div class="sub-controls">
+      <button id="btn-deck" class="sub-btn">🎴 デッキ <span id="deck-count">5</span></button>
+      <button id="btn-items" class="sub-btn">🎒 持ち物 <span id="item-count">0</span></button>
+      <button id="btn-auto" class="sub-btn">⏩ オート</button>
+    </div>
+  </footer>
+
+  <!-- ───────── 3択シート ───────── -->
+  <div id="offer" class="sheet" hidden>
+    <div class="sheet-inner">
+      <p class="sheet-title">どれを入居させる？</p>
+      <div id="offer-cards" class="offer-cards"></div>
+      <button id="btn-skip" class="skip-btn">見送る（+5 コイン）</button>
+    </div>
+  </div>
+
+  <!-- ───────── ショップ ───────── -->
+  <div id="shop" class="overlay" hidden>
+    <div class="overlay-inner">
+      <p id="shop-head" class="overlay-title">家賃を払いました</p>
+      <p id="shop-sub" class="overlay-sub"></p>
+
+      <div class="shop-section">
+        <p class="section-label">買い物</p>
+        <div id="shop-items" class="shop-items"></div>
+      </div>
+
+      <div class="shop-section">
+        <p class="section-label">
+          シンボルを捨てる
+          <span id="remove-hint" class="hint"></span>
+        </p>
+        <div id="shop-remove" class="remove-grid"></div>
+      </div>
+
+      <div class="overlay-actions">
+        <button id="btn-reroll" class="ghost-btn"></button>
+        <button id="btn-next" class="primary-btn">次の期へ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────── デッキ / 持ち物 ───────── -->
+  <div id="deck" class="overlay" hidden>
+    <div class="overlay-inner">
+      <p class="overlay-title">デッキ</p>
+      <p id="deck-sub" class="overlay-sub"></p>
+      <div id="deck-list" class="remove-grid"></div>
+      <div class="overlay-actions">
+        <button id="btn-deck-close" class="primary-btn">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────── リザルト ───────── -->
+  <div id="result" class="overlay" hidden>
+    <div class="overlay-inner">
+      <p id="result-title" class="overlay-title"></p>
+      <p id="result-sub" class="overlay-sub"></p>
+      <div id="result-chart" class="chart"></div>
+      <p id="result-reason" class="reason"></p>
+      <div id="result-deck" class="result-deck"></div>
+      <div class="overlay-actions">
+        <button id="btn-same-seed" class="ghost-btn">同じシードで</button>
+        <button id="btn-new-run" class="primary-btn">新しいラン</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────── メニュー ───────── -->
+  <div id="menu" class="overlay" hidden>
+    <div class="overlay-inner">
+      <p class="overlay-title">メニュー</p>
+      <p class="overlay-sub">シード <span id="menu-seed"></span></p>
+      <div class="diff-row" id="diff-row"></div>
+      <div class="overlay-actions">
+        <button id="btn-restart" class="ghost-btn">最初から</button>
+        <button id="btn-menu-close" class="primary-btn">戻る</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────── ツールチップ ───────── -->
+  <div id="tip" class="tip" hidden></div>
+
+</div>
+<script type="module" src="src/ui/app.js"></script>
+</body>
+</html>
