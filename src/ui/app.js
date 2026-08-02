@@ -380,8 +380,10 @@ async function playBeat(beat, shown, comboIndex) {
  * 増えた金額を、数字ではなく「コインが飛び散って合計へ吸い込まれる」演出で表す。
  *
  * 枚数は amount から算出する（平方根で圧縮 ── 線形だと大きい効果で
- * 何十枚も生成することになり重くなる上に画面が埋まって見づらくなる）。
- * 1〜7枚に収め、視覚的な「量」の目安として十分な範囲に留める。
+ * 何百枚も生成することになり重くなる上に画面が埋まって見づらくなる）。
+ * 1〜20枚に収める。上限が低すぎると、育った植木鉢のような「大きい
+ * 数字」がずっと同じ「7枚」にしか見えず量の違いが伝わらなかったため、
+ * 小さい効果は控えめ・大きい効果はドサッと出る、の差が付く範囲まで広げた。
  *
  * ①②の演出中は、コインは散らばって画面の中に留まるだけ。
  * 合計表示への吸い込みはここでは行わない ── スピン全体の演出が
@@ -397,7 +399,7 @@ function burstCoins(index, amount, kind) {
   // styles.css の prefers-reduced-motion だけでは止まらない。ここで別途弾く。
   // 情報としては欠落しない ── gain-area の合計金額は変わらず更新されるため。
   if (fast || amount <= 0 || REDUCED_MOTION) return;
-  const count = Math.max(1, Math.min(7, Math.round(Math.sqrt(amount) * 1.3)));
+  const count = Math.max(1, Math.min(20, Math.round(Math.sqrt(amount) * 1.4)));
   showScoreBadge(index, amount);
 
   const from = centerOf(cells[index].root);
