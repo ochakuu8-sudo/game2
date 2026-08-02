@@ -225,7 +225,7 @@ async function animateSpin(result, coinsBefore) {
     shown.set(p.index, p.base);
     revealCellGain(p.index, p.base);
     setGainText(`+${total().toLocaleString()}`);
-    sfx.coin(step++);
+    sfx.coin(step++, p.base);
     await wait(fast ? 0 : BASE_STEP_MS);
   }
   clearHot();
@@ -334,7 +334,7 @@ async function playBeat(beat, shown, comboIndex) {
   markedCells.push(src.root);
 
   let sound = 'coin';
-  let bigDelta = false;
+  let gained = 0; // このコンボで実際に増えた金額の合計。音の派手さはこれで決める
   for (const s of beat.steps) {
     for (const ci of s.causes ?? []) {
       if (ci === beat.source || cells[ci].root.classList.contains('involved')) continue;
@@ -348,6 +348,8 @@ async function playBeat(beat, shown, comboIndex) {
       cells[s.target].gain.textContent = '';
       sound = 'destroy';
     } else if (s.kind === 'mult') {
+      const before = shown.get(s.target) ?? 0;
+      gained += Math.max(0, s.after - before);
       spawnDelta(s.target, `×${s.factor}`, 'mult');
       shown.set(s.target, s.after);
       revealCellGain(s.target, s.after);
@@ -356,7 +358,7 @@ async function playBeat(beat, shown, comboIndex) {
       const before = shown.get(s.target) ?? 0;
       const delta = s.after - before;
       if (delta > 0) spawnDelta(s.target, `+${delta}`, 'add');
-      if (delta >= 15) bigDelta = true;
+      gained += Math.max(0, delta);
       shown.set(s.target, s.after);
       revealCellGain(s.target, s.after);
     } else if (s.kind === 'totalMult') {
@@ -366,7 +368,7 @@ async function playBeat(beat, shown, comboIndex) {
 
   if (sound === 'destroy') sfx.destroy();
   else if (sound === 'multiply') sfx.multiply();
-  else sfx.combo(comboIndex, bigDelta);
+  else sfx.combo(comboIndex, gained);
 
   await wait(fast ? 0 : EFFECT_STEP_MS);
 }
