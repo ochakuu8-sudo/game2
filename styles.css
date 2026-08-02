@@ -253,18 +253,17 @@ body {
 }
 
 /*
- * コインの枚数を示す「スコアフォント」。金額（円）バッジとは違い、
- * 背景の付いたラベルではなく、太い縁取りだけのアーケード風の数字にする
- * ── 「これは正確な金額ではなく、出た枚数の目安」という違いを見た目でも出す。
- * ポップして少し浮かび、フェードして消える使い捨て表示。
+ * そのマスがこの一手で実際に稼いだ金額を示す「スコアフォント」。
+ * 背景の付いたラベルではなく、太い縁取りだけのシンプルなアーケード風の
+ * 数字にする。ポップして少し浮かび、フェードして消える使い捨て表示。
  */
-.coin-count {
+.coin-score {
   position: absolute;
   left: 50%;
   top: 4%;
   transform: translate(-50%, -50%);
   z-index: 8;
-  font-size: .46em;
+  font-size: .4em;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: #fff6da;
@@ -273,9 +272,9 @@ body {
   text-shadow: 0 2px 3px rgba(0,0,0,.5);
   white-space: nowrap;
   pointer-events: none;
-  animation: coinCountPop .7s cubic-bezier(.2,.85,.3,1) forwards;
+  animation: coinScorePop .7s cubic-bezier(.2,.85,.3,1) forwards;
 }
-@keyframes coinCountPop {
+@keyframes coinScorePop {
   0%   { transform: translate(-50%, -20%) scale(.4); opacity: 0; }
   20%  { transform: translate(-50%, -60%) scale(1.28); opacity: 1; }
   70%  { transform: translate(-50%, -60%) scale(1); opacity: 1; }

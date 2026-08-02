@@ -398,7 +398,7 @@ function burstCoins(index, amount, kind) {
   // 情報としては欠落しない ── gain-area の合計金額は変わらず更新されるため。
   if (fast || amount <= 0 || REDUCED_MOTION) return;
   const count = Math.max(1, Math.min(7, Math.round(Math.sqrt(amount) * 1.3)));
-  showCoinCount(index, count);
+  showScoreBadge(index, amount);
 
   const from = centerOf(cells[index].root);
   for (let i = 0; i < count; i++) {
@@ -546,15 +546,16 @@ function suckIn(coin, from, to, pitchStep) {
 }
 
 /**
- * そのマスから出たコインの枚数を、スコア風のフォントで一瞬表示する。
- * 金額（円）ではなく「何枚出たか」という見た目の量だけを示す軽い添え物。
+ * そのマスでこの一手が実際に稼いだ金額を、スコア風のフォントで一瞬表示する。
+ * コインの飛翔枚数（sqrt圧縮・最大7枚）はあくまで見た目の演出量であって
+ * 金額そのものではないため、実額はここで別途はっきり数字にする。
  * 使い捨てのDOM要素として都度生成し、アニメーション終了で自分から消える。
  */
-function showCoinCount(index, count) {
+function showScoreBadge(index, amount) {
   const host = cells[index].root;
   const badge = document.createElement('span');
-  badge.className = 'coin-count';
-  badge.textContent = `×${count}`;
+  badge.className = 'coin-score';
+  badge.textContent = `+${amount.toLocaleString()}`;
   host.appendChild(badge);
   badge.addEventListener('animationend', () => badge.remove(), { once: true });
 }
