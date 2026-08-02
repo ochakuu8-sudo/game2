@@ -391,7 +391,7 @@ function burstCoins(index, amount, kind) {
   const from = centerOf(cells[index].root);
   const to = centerOf(el.gain);
   for (let i = 0; i < count; i++) {
-    setTimeout(() => flyCoin(from, to, kind), i * 26);
+    setTimeout(() => flyCoin(from, to, kind, i), i * 26);
   }
 }
 
@@ -405,11 +405,18 @@ function centerOf(node) {
 const easeOutCubic = (t) => 1 - (1 - t) ** 3;
 const easeInCubic = (t) => t * t * t;
 
-/** コイン1枚ぶんのアニメーション。散らばってから吸い込まれ、自分で消える */
-function flyCoin(from, to, kind) {
+/**
+ * コイン1枚ぶんのアニメーション。散らばってから吸い込まれ、自分で消える。
+ * 見た目に合わせて音も鳴らす ── 弾け出る瞬間に軽い「ポッ」（coinPop）、
+ * 合計へ着地した瞬間に金属的な「チンッ」（coinLand）。pitchStep は
+ * 同じバーストの中の何枚目かで、着地音を少しずつ上げて払い出しの
+ * 重なりを作る。
+ */
+function flyCoin(from, to, kind, pitchStep = 0) {
   const coin = document.createElement('div');
   coin.className = `coin-fly coin-fly-${kind}`;
   el.coinLayer.appendChild(coin);
+  sfx.coinPop();
 
   // 散らばる先はランダムな短い方向。吸い込みフェーズの制御点にもなる
   const angle = Math.random() * Math.PI * 2;
@@ -434,6 +441,7 @@ function flyCoin(from, to, kind) {
       setCoinPos(coin, x, y, 1.1 - k * 0.95, 1 - k * 0.85);
       requestAnimationFrame(step);
     } else {
+      sfx.coinLand(pitchStep);
       coin.remove();
     }
   };

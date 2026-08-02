@@ -123,29 +123,56 @@ export const sfx = {
 
   /**
    * ①基礎金額。1マスぶんの加算。step が進むほど音程が上がっていく
-   * （＝マスの並び順の音階）。金額の大小では音を変えない。単発でプレーンな音。
+   * （＝マスの並び順の音階）。金額の大小では音を変えない。
+   * 主役は今は burstCoins の coinPop/coinLand なので、ここは控えめな
+   * トリガー音（「このマスの番が来た」の合図）に留める。
    */
   coin(step = 0) {
     const n = LADDER[Math.min(step, LADDER.length - 1)];
-    tone({ freq: note(n), type: 'square', dur: 0.055, gain: 0.24 });
-    tone({ freq: note(n + 12), type: 'triangle', dur: 0.05, gain: 0.14 });
+    tone({ freq: note(n), type: 'triangle', dur: 0.05, gain: 0.16 });
   },
 
   /**
    * ②特殊効果。①のコイン音とは意図的に違う音色にする
    * ── 「値が並ぶ」①と「効果が連鎖して発動する」②を耳でも区別できるようにするため。
-   * アタック（短いクリック）＋和音2層で「ヒットした」感を作る。
+   * アタック（短いクリック）で「ヒットした」感を作る。
    *
    * index はそのスピン内で通したコンボの順番。進むほど音程が上がり、
    * コンボが繋がっている実感を出す ── **表現はこの音程の軸だけに絞る**。
-   * 金額の大小では音を変えない（大きい金額かどうかは、盤面のポップアップ
-   * `+N` / `×N` が見た目で伝えるので、音は役割を分けている）。
+   * こちらも主役は coinPop/coinLand。ここは「発動した」トリガー音のみ。
    */
   combo(index = 0) {
     const n = LADDER[Math.min(index, LADDER.length - 1)];
-    noise({ dur: 0.022, gain: 0.16, from: 4200, to: 1800, q: 5 });
-    tone({ freq: note(n), type: 'sawtooth', dur: 0.075, gain: 0.22 });
-    tone({ freq: note(n + 7), type: 'sine', dur: 0.09, gain: 0.15, delay: 0.014 });
+    noise({ dur: 0.02, gain: 0.13, from: 4200, to: 1800, q: 5 });
+    tone({ freq: note(n), type: 'sawtooth', dur: 0.06, gain: 0.15 });
+  },
+
+  /**
+   * コイン1枚が盤面から弾け出る、ごく短い「ポッ」という音。
+   * 何枚も束になって鳴るので、1枚あたりは目立たせすぎない。
+   */
+  coinPop() {
+    const wobble = 1 + (Math.random() - 0.5) * 0.08;
+    tone({ freq: 1500 * wobble, type: 'sine', dur: 0.03, gain: 0.07 });
+  },
+
+  /**
+   * コイン1枚が合計へ吸い込まれて着地する「チンッ」という金属音。
+   * ギャンブルマシーンのコイン払い出しをイメージした、明るく硬質な質感。
+   * わずかにデチューンした倍音を重ねてキラッと光らせ、アタックには
+   * 高域のノイズを一滴だけ混ぜて硬さを出す。
+   *
+   * 1回の burstCoins で複数枚が少しずつ間隔をずらして着地するため、
+   * pitchStep（枚目の番号）で少しずつ音程を上げる。連続して鳴ると
+   * 「ジャラッ、チャラチャラ」という払い出しの重なりになる。
+   * ランダムなゆらぎも足し、毎回まったく同じ音にはならないようにする。
+   */
+  coinLand(pitchStep = 0) {
+    const wobble = 1 + (Math.random() - 0.5) * 0.06;
+    const freq = note(16 + pitchStep * 1.4) * wobble;
+    tone({ freq, type: 'sine', dur: 0.11, gain: 0.24 });
+    tone({ freq: freq * 2.01, type: 'triangle', dur: 0.075, gain: 0.14, delay: 0.006 });
+    noise({ dur: 0.02, gain: 0.11, from: 9000, to: 6000, q: 7 });
   },
 
   /** シンボルが壊れた */
