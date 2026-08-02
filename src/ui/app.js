@@ -201,6 +201,9 @@ async function doSpin() {
  */
 async function animateSpin(result, coinsBefore) {
   skipReset();
+  // 前のスピンの吸収状態を持ち越さない。前のスピンの回収漏れがもし残っていても、
+  // このスピンの新しいバーストと混ざらないよう、ここで必ず「未吸収」に戻す
+  absorbing = null;
 
   // ── 1. 落ちてくる ────────────────────────────────
   paintBoard(result.placed);
@@ -248,11 +251,11 @@ async function animateSpin(result, coinsBefore) {
   let running;
   if (skipRequested) {
     // スキップされた場合は、残りをすべて即座に確定値へ合わせる。
-    // コインを飛ばしている途中だと間に合わないので、ここでは飛ばさず
-    // 破壊されたマスをグレーにするだけにとどめる
+    // 散らばって待っているコインも、飛ばしている暇はないので即座に片付ける
     for (const p of placed) {
       if (p.destroyed) cells[p.index].root.classList.add('dead');
     }
+    clearScatteredCoins();
     running = result.subtotal;
     setGainText(`+${running.toLocaleString()}`);
   } else {
@@ -280,6 +283,9 @@ async function animateSpin(result, coinsBefore) {
   }
 
   // ── 5. 財布に入る ────────────────────────────────
+  // ここまで散らばって待機していたコインを、全部まとめて合計へ吸い込む。
+  // 「①②の演出中はコインは画面に散らばるだけ、全部終わってから一気に集まる」
+  absorbAllCoins();
   clearHot();
   setGainText(`+${result.total.toLocaleString()}`);
   el.gain.classList.toggle('big', result.totalMultiplier > 1 || result.total >= 200);
@@ -377,14 +383,14 @@ async function playBeat(beat, shown, comboIndex) {
  * 何十枚も生成することになり重くなる上に画面が埋まって見づらくなる）。
  * 1〜7枚に収め、視覚的な「量」の目安として十分な範囲に留める。
  *
- * 流れは3段階：①その場に枚数を「×N」で一瞬表示 → ②全員が思い思いの方向へ
- * 散らばり、そこで静止して待つ → ③**全員の散らばりが終わってから**、
- * 一斉に合計表示（gain-area の +XX）へ吸い込まれる。②③を1コインずつ
- * 独立させず全体で足並みを揃えるのは、「バラバラ吸い込まれる」より
- * 「せーので回収される」ほうが1つのまとまった演出として気持ちいいため。
+ * ①②の演出中は、コインは散らばって画面の中に留まるだけ。
+ * 合計表示への吸い込みはここでは行わない ── スピン全体の演出が
+ * すべて終わった後、animateSpin の「財布に入る」段で absorbAllCoins() が
+ * まとめて回収する。バーストごとにバラバラ回収するより、
+ * 「最後に画面じゅうのコインが一気に集まる」ほうが締めの一撃として気持ちいい。
  *
- * このバースト全体（演出をブロックしない＝await しない）は、次のコンボが
- * 始まっても並行して動き続ける。それが「連続して稼いでいる」勢いになる。
+ * このバースト自体（演出をブロックしない＝await しない）は、次のコンボが
+ * 始まっても並行して散らばり続ける。それが「連続して稼いでいる」勢いになる。
  */
 function burstCoins(index, amount, kind) {
   // コインの飛翔は CSS アニメーションではなく JS の rAF で動かしているので、
@@ -395,13 +401,8 @@ function burstCoins(index, amount, kind) {
   showCoinCount(index, count);
 
   const from = centerOf(cells[index].root);
-  const to = centerOf(el.gain);
-  // 最後（count-1枚目）が散らばり終わる時刻を先に決めておき、
-  // 全コインがこの時刻に足並みを揃えて吸い込みへ移る
-  const scatterAllDoneAt = performance.now() + (count - 1) * COIN_STAGGER_MS + COIN_SCATTER_MS;
-
   for (let i = 0; i < count; i++) {
-    setTimeout(() => spawnCoin(from, to, kind, i, scatterAllDoneAt), i * COIN_STAGGER_MS);
+    setTimeout(() => spawnCoin(from, kind), i * COIN_STAGGER_MS);
   }
 }
 
@@ -409,6 +410,8 @@ function burstCoins(index, amount, kind) {
 const COIN_STAGGER_MS = 45;
 const COIN_SCATTER_MS = 130;
 const COIN_SUCK_MS = 400;
+/** 最後の一斉回収で、コインを吸い込み始めるタイミングをずらす間隔（0なら全員同時） */
+const ABSORB_STAGGER_MS = 16;
 
 /** #app を基準にした要素中心の座標（コイン要素をそこに絶対配置するため） */
 function centerOf(node) {
@@ -420,14 +423,35 @@ function centerOf(node) {
 const easeOutCubic = (t) => 1 - (1 - t) ** 3;
 const easeInCubic = (t) => t * t * t;
 
+/** 散らばって、その場に留まっているコイン。absorbAllCoins() が回収するまでここに積む */
+let scatteredCoins = [];
+
 /**
- * コイン1枚を生成し、まず散らばりだけを再生する。
- * 散らばり終わったら absorbAt まで静止して待ち、そこで waitThenSuck に渡す。
+ * 生成されてから消えるまでの全コイン要素。散らばり待ちか吸い込み中かを問わない。
+ * スキップ時、この Set に載っているものを全部消せば「今生きているコインを漏れなく片付ける」
+ * ことになる ── scatteredCoins だけを見ていると、散らばりアニメーションの
+ * 途中（まだ scatteredCoins に積まれる前）のコインを取りこぼす。
  */
-function spawnCoin(from, to, kind, pitchStep, absorbAt) {
+let activeCoins = new Set();
+
+/**
+ * 「吸収はもう始まっているか」の状態。
+ *
+ * 大きめのバースト（最大7枚・生成間隔45ms）は、最後の1枚が散らばり終えるまで
+ * 最大 6×45+130=400ms かかる。一方コンボの間隔は0.2秒なので、直前のコンボの
+ * バーストがまだ散らばり終えていないうちに absorbAllCoins() が呼ばれることがある。
+ * その場合に「まだ散らばり中だったコイン」を取りこぼさないよう、absorbAllCoins()
+ * 呼び出し後に散らばり終えたコインは、ここを見て「もう吸収は始まっているなら
+ * 即座に自分も合流する」ようにする。
+ */
+let absorbing = null; // null か { to, nextPitch }
+
+/** コイン1枚を生成し、散らばるところまでを再生する */
+function spawnCoin(from, kind) {
   const coin = document.createElement('div');
   coin.className = `coin-fly coin-fly-${kind}`;
   el.coinLayer.appendChild(coin);
+  activeCoins.add(coin);
   sfx.coinPop();
 
   // 散らばる先はランダムな短い方向。見た目だけの揺らぎで、タイミングには影響しない
@@ -437,32 +461,53 @@ function spawnCoin(from, to, kind, pitchStep, absorbAt) {
 
   const t0 = performance.now();
   const scatterStep = (t) => {
+    if (!activeCoins.has(coin)) return; // clearScatteredCoins 等で既に片付け済み
     const k = easeOutCubic(Math.min(1, (t - t0) / COIN_SCATTER_MS));
     setCoinPos(coin, lerp(from.x, rest.x, k), lerp(from.y, rest.y, k), 0.55 + k * 0.55, 1);
-    if (k < 1) requestAnimationFrame(scatterStep);
-    else waitThenSuck(coin, rest, to, absorbAt, pitchStep);
+    if (k < 1) { requestAnimationFrame(scatterStep); return; }
+    if (absorbing) suckIn(coin, rest, absorbing.to, absorbing.nextPitch++);
+    else scatteredCoins.push({ el: coin, x: rest.x, y: rest.y });
   };
   requestAnimationFrame(scatterStep);
 }
 
-/** 散らばり終えた位置で静止したまま、他のコインが追いつくのを待つ */
-function waitThenSuck(coin, restPos, to, absorbAt, pitchStep) {
-  const check = (t) => {
-    if (t < absorbAt) requestAnimationFrame(check);
-    else suckIn(coin, restPos, to, pitchStep);
-  };
-  requestAnimationFrame(check);
+/**
+ * その時点までに散らばって待機している全コインを、合計表示へ一斉に吸い込む。
+ * 開始タイミングはコインごとにごくわずかにずらす（ABSORB_STAGGER_MS）だけで、
+ * 大量に溜まっていても瞬間的な音の壁にならないようにする。
+ * pitchStep は吸い込み開始順そのままなので、聞こえる音程は順番どおりに動く。
+ * 呼び出し後に散らばり終える遅れてきたコインも absorbing フラグを見て自動的に合流する。
+ */
+function absorbAllCoins() {
+  const coins = scatteredCoins;
+  scatteredCoins = [];
+  const to = centerOf(el.gain);
+  absorbing = { to, nextPitch: coins.length };
+  coins.forEach((c, i) => {
+    setTimeout(() => suckIn(c.el, { x: c.x, y: c.y }, to, i), i * ABSORB_STAGGER_MS);
+  });
 }
 
 /**
- * 静止していたコインを、合計表示へ一斉に吸い込む。
- * 開始時刻・所要時間ともに全コイン共通なので、着地（＝音が鳴る瞬間）も
- * 全員そろう ── バラけて鳴るより、まとまった「ジャラッ」という一撃になる。
+ * スキップ時など、飛ばしている暇がない時にコインを即座に片付ける。
+ * 散らばり待機中だけでなく、散らばりアニメーションの途中のものも含めて全部消す
+ * （activeCoins が生成〜消滅までの全コインを持っているので、これで漏れがない）。
+ */
+function clearScatteredCoins() {
+  for (const c of activeCoins) c.remove();
+  activeCoins = new Set();
+  scatteredCoins = [];
+  absorbing = null;
+}
+
+/**
+ * 静止していたコインを、合計表示へ吸い込む。
  */
 function suckIn(coin, from, to, pitchStep) {
   const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
   const t0 = performance.now();
   const step = (t) => {
+    if (!activeCoins.has(coin)) return; // clearScatteredCoins で既に片付け済み
     const el0 = t - t0;
     if (el0 < COIN_SUCK_MS) {
       const k = easeInCubic(el0 / COIN_SUCK_MS);
@@ -473,6 +518,7 @@ function suckIn(coin, from, to, pitchStep) {
       requestAnimationFrame(step);
     } else {
       sfx.coinLand(pitchStep);
+      activeCoins.delete(coin);
       coin.remove();
     }
   };

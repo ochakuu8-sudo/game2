@@ -162,15 +162,18 @@ export const sfx = {
    * わずかにデチューンした倍音を重ねてキラッと光らせ、アタックには
    * 高域のノイズを一滴だけ混ぜて硬さを出す。
    *
-   * 1回の burstCoins は生成間隔も飛行時間も固定なので、着地も一定間隔で
-   * 順番どおりに起こる（app.js の COIN_STAGGER_MS 参照）。pitchStep
-   * （枚目の番号）で音程を一段ずつ確実に上げることで、「規則正しく
+   * pitchStep（回収した順番）で音程を一段ずつ上げ、「規則正しく
    * ジャラッ、ジャラッ、ジャラッ」という払い出しの上昇音形になる。
    * ゆらぎはごく小さく留め、この規則性を壊さないようにする。
+   *
+   * スピン全体の演出が終わった後にまとめて回収する仕様上、pitchStep は
+   * 数十まで届くことがある。際限なく上げ続けると聞き取れない高音域に
+   * 突き抜けてしまうので、一定の範囲でループさせる。
    */
   coinLand(pitchStep = 0) {
+    const step = pitchStep % 12;
     const wobble = 1 + (Math.random() - 0.5) * 0.025;
-    const freq = note(16 + pitchStep * 1.4) * wobble;
+    const freq = note(16 + step * 1.4) * wobble;
     tone({ freq, type: 'sine', dur: 0.11, gain: 0.24 });
     tone({ freq: freq * 2.01, type: 'triangle', dur: 0.075, gain: 0.14, delay: 0.006 });
     noise({ dur: 0.02, gain: 0.11, from: 9000, to: 6000, q: 7 });
