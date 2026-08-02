@@ -8,7 +8,39 @@
 - **片手・縦持ち**、タップだけで完結。1画面に収まりページはスクロールしない
 - **ビルド不要**。URL を開いたら即プレイ
 
-## 動かす
+## 遊ぶ（GitHub Pages）
+
+リポジトリの **Settings → Pages** で、
+
+- **Source**: Deploy from a branch
+- **Branch**: `main` / `/ (root)`
+
+を指定して保存するだけで公開される。ビルドも Actions のワークフローも要らない。
+
+公開先: `https://ochakuu8-sudo.github.io/game2/`
+
+数十秒〜数分で反映される。スマホでこの URL を開き、
+ブラウザの共有メニューから「ホーム画面に追加」すると、
+アドレスバーなしの全画面・縦固定で起動する（`manifest.webmanifest`）。
+
+### Pages 用にしてあること
+
+| 対応 | 理由 |
+| --- | --- |
+| `.nojekyll` を置いた | Jekyll のビルドを止めて、ファイルをそのまま配信させる |
+| パスをすべて相対にした | `/<repo>/` 配下に置かれても壊れないため。実際にサブパス配信で動作確認済み |
+| `manifest.webmanifest` の `start_url` / `scope` を `./` に | 同上。ホーム画面から開いても正しい階層で起動する |
+| アイコン 192 / 512 / apple-touch を同梱 | ホーム画面追加時の見た目。iOS は `apple-touch-icon.png` を見る |
+
+> リポジトリ名を変えたり独自ドメインを当てたりする場合は、
+> `index.html` の `og:image` の絶対 URL だけ書き換えること（それ以外は相対なので影響なし）。
+
+Service Worker は入れていないので、**初回表示にはネットワークが必要**。
+一度開いたあとは進行状況が localStorage に入るため、
+通信が切れてもそのランは最後まで続けられる。
+（完全なオフライン起動は docs/06 の M3 で対応予定）
+
+## ローカルで動かす
 
 ES Modules をそのまま読むので、静的サーバーに置くだけで動く（バンドラ不要）。
 
@@ -46,6 +78,8 @@ npm run sim -- --runs=10000 --policy=greedy  # 貪欲AIのみ
 ```
 index.html            画面の骨格
 styles.css            1画面に収めるレイアウト（盤面はコンテナクエリで自動リサイズ）
+manifest.webmanifest  ホーム画面に追加したとき全画面で開くための設定
+.nojekyll             GitHub Pages に「Jekyll を通さずそのまま配信」させる印
 src/core/             純粋ロジック。DOM にも UI にも依存しない
   rng.js              シード付き乱数（Math.random は使わない）
   board.js            4列×5行の盤面と8方向隣接

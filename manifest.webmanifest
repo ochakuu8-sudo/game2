@@ -1,0 +1,16 @@
+{
+  "name": "ラッキーハイツ 202号室",
+  "short_name": "ラッキーハイツ",
+  "description": "築40年のボロアパートでスロットを回して家賃を稼ぐ、スロット×ローグライクデッキビルド。",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#17130f",
+  "theme_color": "#17130f",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
