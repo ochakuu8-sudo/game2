@@ -62,6 +62,10 @@
     <div id="gain" class="gain"></div>
   </div>
 
+  <!-- コインが飛び散って合計へ吸い込まれる演出専用のレイヤー。盤面もヘッダーもまたぐので、
+       個々のマスやgain-areaの中ではなく #app 直下に敷く -->
+  <div id="coin-layer" class="coin-layer" aria-hidden="true"></div>
+
   <!-- ───────── 操作 ───────── -->
   <footer class="controls">
     <button id="btn-spin" class="spin-btn">スピン</button>

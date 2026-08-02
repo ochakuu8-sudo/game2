@@ -243,39 +243,36 @@ body {
 }
 
 /*
- * 差分ポップアップ（+N / ×N）。
- * マス上の合計バッジは「今いくらか」という絶対値なので、0.1秒ペースで
- * 切り替わり続けると変化量が読み取りにくい。「いくら増えたか」を伝える
- * 役目はこちらが専任する ── バッジより目立つ色で、マスの中央から
- * ふわっと浮き上がって消える。使い捨て要素なので、寿命が0.1秒より
- * 長くても後続のコンボと衝突しない（重なって浮かぶのはむしろ歓迎）。
+ * コインが飛び散って合計表示へ吸い込まれる演出。
+ * マス上の合計バッジは「今いくらか」という絶対値。「いくら増えたか」は
+ * 数字ではなく、飛んでいくコインの枚数と動きで伝える。
+ *
+ * コインはマスをまたいで gain-area まで飛ぶので、セルの中ではなく
+ * #app 直下の専用レイヤー（座標系はJS側でapp基準に計算する）に置く。
+ * 位置とスケールは JS 側の requestAnimationFrame で毎フレーム書き換える。
  */
-.delta-pop {
+.coin-layer {
   position: absolute;
-  left: calc(50% + var(--jx, 0px));
-  top: 42%;
-  transform: translate(-50%, -50%);
-  z-index: 6;
-  font-size: .46em;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  inset: 0;
+  z-index: 15;
   pointer-events: none;
-  animation: deltaPop .6s cubic-bezier(.15,.75,.3,1) forwards;
+  overflow: hidden;
 }
-.delta-add {
-  color: #9dffb0;
-  text-shadow: 0 1px 2px rgba(0,0,0,.65), 0 0 8px rgba(120, 230, 140, .8);
+.coin-fly {
+  position: absolute;
+  width: 1.1em;
+  height: 1.1em;
+  font-size: 15px;
+  border-radius: 50%;
+  will-change: left, top, transform, opacity;
 }
-.delta-mult {
-  color: #ffe58a;
-  text-shadow: 0 1px 2px rgba(0,0,0,.65), 0 0 9px rgba(255, 210, 100, .85);
+.coin-fly-add {
+  background: radial-gradient(circle at 35% 30%, #fff2c4, var(--accent) 65%, var(--accent-2));
+  box-shadow: 0 0 6px rgba(232, 180, 74, .7), 0 1px 0 rgba(0,0,0,.3) inset;
 }
-@keyframes deltaPop {
-  0%   { transform: translate(-50%, -20%) scale(.5); opacity: 0; }
-  22%  { transform: translate(-50%, -85%) scale(1.3); opacity: 1; }
-  70%  { transform: translate(-50%, -140%) scale(1.05); opacity: 1; }
-  100% { transform: translate(-50%, -190%) scale(1); opacity: 0; }
+.coin-fly-mult {
+  background: radial-gradient(circle at 35% 30%, #fff8e0, #ffcf6b 60%, #d98a2a);
+  box-shadow: 0 0 8px rgba(255, 210, 100, .85), 0 1px 0 rgba(0,0,0,.3) inset;
 }
 
 /* ───────────────── 獲得表示 ───────────────── */

@@ -34,10 +34,13 @@ const el = {
   menu: $('menu'), menuSeed: $('menu-seed'), diffRow: $('diff-row'),
   btnMenu: $('btn-menu'), btnMenuClose: $('btn-menu-close'), btnRestart: $('btn-restart'),
   tip: $('tip'),
+  coinLayer: $('coin-layer'),
   boardArea: document.querySelector('.board-area'),
   gainArea: document.querySelector('.gain-area'),
   controls: document.querySelector('.controls'),
 };
+
+const REDUCED_MOTION = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 let run = null;
 let meta = null;
@@ -347,14 +350,15 @@ async function playBeat(beat, shown, comboIndex) {
       cells[s.target].gain.textContent = '';
       sound = 'destroy';
     } else if (s.kind === 'mult') {
-      spawnDelta(s.target, `×${s.factor}`, 'mult');
+      const before = shown.get(s.target) ?? 0;
+      burstCoins(s.target, s.after - before, 'mult');
       shown.set(s.target, s.after);
       revealCellGain(s.target, s.after);
       sound = 'multiply';
     } else if (s.kind === 'add') {
       const before = shown.get(s.target) ?? 0;
       const delta = s.after - before;
-      if (delta > 0) spawnDelta(s.target, `+${delta}`, 'add');
+      if (delta > 0) burstCoins(s.target, delta, 'add');
       shown.set(s.target, s.after);
       revealCellGain(s.target, s.after);
     } else if (s.kind === 'totalMult') {
@@ -370,23 +374,84 @@ async function playBeat(beat, shown, comboIndex) {
 }
 
 /**
- * +N / ×N の差分ポップアップを 1つ生成する。
- * 使い捨ての要素として作り、アニメーション終了で自分から消える。
- * コンボの間隔（0.1秒）より寿命が長いので、連続するコンボの分が
- * 画面上に何個も重なって浮かぶ ── それによって「勢いよく積み上がっている」
- * ことが一目でわかる。
+ * 増えた金額を、数字ではなく「コインが飛び散って合計へ吸い込まれる」演出で表す。
+ *
+ * 枚数は amount から算出する（平方根で圧縮 ── 線形だと大きい効果で
+ * 何十枚も生成することになり重くなる上に画面が埋まって見づらくなる）。
+ * 1〜7枚に収め、視覚的な「量」の目安として十分な範囲に留める。
+ *
+ * コインは①散らばる → ②合計表示（gain-area の +XX）へ吸い込まれる、の
+ * 2段階。②は combo の間隔（0.2秒）より長く飛び続けるので、次のコンボが
+ * 始まっても前のコインは飛んでいる ── それが「連続して稼いでいる」勢いになる。
+ * 演出をブロックしない（await しない）のはそのため。
  */
-function spawnDelta(index, text, kind) {
-  if (fast) return;
-  const host = cells[index].root;
-  const el = document.createElement('span');
-  el.className = `delta-pop delta-${kind}`;
-  el.textContent = text;
-  // 同じマスで連続して出た時に完全に重ならないよう、わずかに横へ散らす
-  el.style.setProperty('--jx', `${(Math.random() * 16 - 8).toFixed(1)}px`);
-  host.appendChild(el);
-  el.addEventListener('animationend', () => el.remove(), { once: true });
+function burstCoins(index, amount, kind) {
+  // コインの飛翔は CSS アニメーションではなく JS の rAF で動かしているので、
+  // styles.css の prefers-reduced-motion だけでは止まらない。ここで別途弾く。
+  // 情報としては欠落しない ── マス上の合計バッジは変わらず更新されるため。
+  if (fast || amount <= 0 || REDUCED_MOTION) return;
+  const count = Math.max(1, Math.min(7, Math.round(Math.sqrt(amount) * 1.3)));
+  const from = centerOf(cells[index].root);
+  const to = centerOf(el.gain);
+  for (let i = 0; i < count; i++) {
+    setTimeout(() => flyCoin(from, to, kind), i * 26);
+  }
 }
+
+/** #app を基準にした要素中心の座標（コイン要素をそこに絶対配置するため） */
+function centerOf(node) {
+  const r = node.getBoundingClientRect();
+  const a = el.app.getBoundingClientRect();
+  return { x: r.left + r.width / 2 - a.left, y: r.top + r.height / 2 - a.top };
+}
+
+const easeOutCubic = (t) => 1 - (1 - t) ** 3;
+const easeInCubic = (t) => t * t * t;
+
+/** コイン1枚ぶんのアニメーション。散らばってから吸い込まれ、自分で消える */
+function flyCoin(from, to, kind) {
+  const coin = document.createElement('div');
+  coin.className = `coin-fly coin-fly-${kind}`;
+  el.coinLayer.appendChild(coin);
+
+  // 散らばる先はランダムな短い方向。吸い込みフェーズの制御点にもなる
+  const angle = Math.random() * Math.PI * 2;
+  const spread = 16 + Math.random() * 22;
+  const mid = { x: from.x + Math.cos(angle) * spread, y: from.y + Math.sin(angle) * spread - 8 };
+
+  const SCATTER_MS = 130;
+  const SUCK_MS = 360 + Math.random() * 90;
+  const t0 = performance.now();
+
+  const step = (t) => {
+    const el0 = t - t0;
+    if (el0 < SCATTER_MS) {
+      const k = easeOutCubic(el0 / SCATTER_MS);
+      setCoinPos(coin, lerp(from.x, mid.x, k), lerp(from.y, mid.y, k), 0.55 + k * 0.55, 1);
+      requestAnimationFrame(step);
+    } else if (el0 < SCATTER_MS + SUCK_MS) {
+      const k = easeInCubic((el0 - SCATTER_MS) / SUCK_MS);
+      // mid を制御点にした2次ベジェで、合計表示へ吸い込まれる弧を描く
+      const x = bezier2(mid.x, (mid.x + to.x) / 2, to.x, k);
+      const y = bezier2(mid.y, (mid.y + to.y) / 2, to.y, k);
+      setCoinPos(coin, x, y, 1.1 - k * 0.95, 1 - k * 0.85);
+      requestAnimationFrame(step);
+    } else {
+      coin.remove();
+    }
+  };
+  requestAnimationFrame(step);
+}
+
+function setCoinPos(node, x, y, scale, opacity) {
+  node.style.left = `${x}px`;
+  node.style.top = `${y}px`;
+  node.style.transform = `translate(-50%, -50%) scale(${scale})`;
+  node.style.opacity = opacity;
+}
+
+const lerp = (a, b, k) => a + (b - a) * k;
+const bezier2 = (p0, p1, p2, k) => (1 - k) ** 2 * p0 + 2 * (1 - k) * k * p1 + k ** 2 * p2;
 
 const markedCells = [];
 function clearMarks() {
