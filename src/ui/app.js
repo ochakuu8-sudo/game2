@@ -455,7 +455,7 @@ let activeCoins = new Set();
  * その場合に「まだ散らばり中だったコイン」を取りこぼさないよう、absorbAllCoins()
  * 呼び出し後に散らばり終えたコインも、この共有スケジュールに乗せて出発させる。
  */
-let absorbing = null; // null か { to, nextPitch, nextSlotAt }
+let absorbing = null; // null か { to, nextSlotAt }
 
 /** コイン1枚を生成し、散らばるところまでを再生する */
 function spawnCoin(from, kind) {
@@ -485,14 +485,13 @@ function spawnCoin(from, kind) {
 /**
  * その時点までに散らばって待機している全コインを、合計表示へ吸い込む。
  * 1枚ずつ ABSORB_STAGGER_MS の等間隔で吸い込み始めることで、
- * 「ジャラッ、ジャラッ、ジャラッ」と1枚ずつ聞き分けられる連続音にする。
- * pitchStep は吸い込み開始順そのままなので、聞こえる音程も順番どおりに動く。
+ * 「チッ、チッ、チッ」と1枚ずつ聞き分けられる連続音にする。
  * 呼び出し後に散らばり終える遅れてきたコインも absorbing フラグを見て自動的に合流する。
  */
 function absorbAllCoins() {
   const coins = scatteredCoins;
   scatteredCoins = [];
-  absorbing = { to: centerOf(el.gain), nextPitch: 0, nextSlotAt: performance.now() };
+  absorbing = { to: centerOf(el.gain), nextSlotAt: performance.now() };
   for (const c of coins) scheduleAbsorb(c.el, { x: c.x, y: c.y });
 }
 
@@ -506,9 +505,8 @@ function absorbAllCoins() {
 function scheduleAbsorb(coinEl, restPos) {
   const { to } = absorbing;
   const delay = Math.max(0, absorbing.nextSlotAt - performance.now());
-  const pitchStep = absorbing.nextPitch++;
   absorbing.nextSlotAt += ABSORB_STAGGER_MS;
-  setTimeout(() => suckIn(coinEl, restPos, to, pitchStep), delay);
+  setTimeout(() => suckIn(coinEl, restPos, to), delay);
 }
 
 /**
@@ -526,7 +524,7 @@ function clearScatteredCoins() {
 /**
  * 静止していたコインを、合計表示へ吸い込む。
  */
-function suckIn(coin, from, to, pitchStep) {
+function suckIn(coin, from, to) {
   const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
   const t0 = performance.now();
   const step = (t) => {
@@ -540,7 +538,7 @@ function suckIn(coin, from, to, pitchStep) {
       setCoinPos(coin, x, y, 1.1 - k * 0.95, 1 - k * 0.85);
       requestAnimationFrame(step);
     } else {
-      sfx.coinLand(pitchStep);
+      sfx.coinLand();
       activeCoins.delete(coin);
       coin.remove();
     }
