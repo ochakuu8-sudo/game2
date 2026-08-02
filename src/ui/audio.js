@@ -102,23 +102,6 @@ function noise({ dur = 0.12, gain = 0.35, from = 2000, to = 400, q = 1, delay = 
 const LADDER = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31, 33, 36];
 const note = (semitone) => 440 * Math.pow(2, semitone / 12);
 
-/**
- * 金額の大きさを 0〜1 の連続値に変換する。段階（tier）は使わない。
- *
- * 音量・和音の混ざり具合・ノイズの明るさは、すべてこの値に「比例」させる。
- * 境界を切ってカクッと変わる作りだと、例えば 24 と 25 が別物に聞こえるのに
- * 25 と 55 が同じに聞こえる、という不自然さが出る。この値は amount が
- * 1増えるごとに必ずわずかに動くので、そういう不連続な段差が起きない。
- *
- * 金額は 1 〜 数百まで幅があるため、線形ではなく対数で圧縮する
- * （線形だと 1〜10 の違いが埋もれ、100超えの差だけが支配的になってしまう）。
- * CAP 付近の金額でほぼ最大の派手さに達する。
- */
-function sizeFactor(amount) {
-  const CAP = 120;
-  return Math.min(1, Math.max(0, Math.log(amount + 1) / Math.log(CAP + 1)));
-}
-
 // ───────────────────────── 効果音 ─────────────────────────
 
 export const sfx = {
@@ -140,49 +123,29 @@ export const sfx = {
 
   /**
    * ①基礎金額。1マスぶんの加算。step が進むほど音程が上がっていく
-   * （＝マスの並び順の音階）のに加えて、amount が大きいほど連続的に厚みが増す
-   * （＝その1マスの金額そのものの派手さ）。2つの軸は独立している。
+   * （＝マスの並び順の音階）。金額の大小では音を変えない。単発でプレーンな音。
    */
-  coin(step = 0, amount = 0) {
+  coin(step = 0) {
     const n = LADDER[Math.min(step, LADDER.length - 1)];
-    const k = sizeFactor(amount);
-    tone({ freq: note(n), type: 'square', dur: 0.05 + k * 0.025, gain: 0.16 + k * 0.26 });
-    tone({ freq: note(n + 12), type: 'triangle', dur: 0.045, gain: 0.08 + k * 0.2 });
-    // 上の倍音・ノイズは常に鳴っているが、k が低いとほぼ聞こえない音量から
-    // 連続的に立ち上がる（オンオフの切り替えではない）
-    tone({ freq: note(n + 19), type: 'triangle', dur: 0.06, gain: k * k * 0.2, delay: 0.02 });
-    if (k > 0.3) noise({ dur: 0.04 + k * 0.03, gain: (k - 0.3) * 0.3, from: 3200 + k * 3000, to: 2000, q: 2 });
+    tone({ freq: note(n), type: 'square', dur: 0.055, gain: 0.24 });
+    tone({ freq: note(n + 12), type: 'triangle', dur: 0.05, gain: 0.14 });
   },
 
   /**
    * ②特殊効果。①のコイン音とは意図的に違う音色にする
    * ── 「値が並ぶ」①と「効果が連鎖して発動する」②を耳でも区別できるようにするため。
-   * アタック（短いクリック）＋和音的に重ねた層で「ヒットした」感を作る。
+   * アタック（短いクリック）＋和音2層で「ヒットした」感を作る。
    *
-   * index はそのスピン内で通したコンボの順番（音程を積み上げる軸）。
-   * amount はそのコンボで実際に増えた金額（派手さを積み上げる軸）。
-   * 「音だけで大きい金額が当たったとわかる」を担うのは amount 側 ──
-   * sizeFactor() で 0〜1 に均した k を、音量・和音の混ざり具合・ノイズの
-   * 明るさすべてに比例させる。境界で切り替わる箇所は無い。
+   * index はそのスピン内で通したコンボの順番。進むほど音程が上がり、
+   * コンボが繋がっている実感を出す ── **表現はこの音程の軸だけに絞る**。
+   * 金額の大小では音を変えない（大きい金額かどうかは、盤面のポップアップ
+   * `+N` / `×N` が見た目で伝えるので、音は役割を分けている）。
    */
-  combo(index = 0, amount = 0) {
+  combo(index = 0) {
     const n = LADDER[Math.min(index, LADDER.length - 1)];
-    const k = sizeFactor(amount);
-    noise({
-      dur: 0.02 + k * 0.06, gain: 0.08 + k * 0.3,
-      from: 3500 + k * 3500, to: 2000 - k * 900, q: 5 - k * 2.5,
-    });
-    tone({ freq: note(n), type: 'sawtooth', dur: 0.07 + k * 0.05, gain: 0.13 + k * 0.28 });
-    tone({ freq: note(n + 7), type: 'sine', dur: 0.09, gain: 0.07 + k * 0.24, delay: 0.014 });
-    // 上に積む倍音ほど、k が高い領域でだけ意味のある音量になる
-    // （k^2, k^3 で立ち上がりを遅らせ、序盤の地味なコンボでは鳴らない）
-    tone({ freq: note(n + 12), type: 'triangle', dur: 0.1, gain: k * k * 0.32, delay: 0.026 });
-    tone({ freq: note(n + 16), type: 'triangle', dur: 0.11, gain: k * k * k * 0.3, delay: 0.038 });
-    if (k > 0.6) {
-      const j = (k - 0.6) / 0.4; // 0.6〜1.0 を 0〜1 に引き伸ばす
-      noise({ dur: 0.06 + j * 0.05, gain: j * 0.3, from: 6000, to: 700, q: 1.6, delay: 0.01 });
-      tone({ freq: note(n + 24), type: 'sawtooth', dur: 0.1 + j * 0.05, gain: j * 0.24, delay: 0.05 });
-    }
+    noise({ dur: 0.022, gain: 0.16, from: 4200, to: 1800, q: 5 });
+    tone({ freq: note(n), type: 'sawtooth', dur: 0.075, gain: 0.22 });
+    tone({ freq: note(n + 7), type: 'sine', dur: 0.09, gain: 0.15, delay: 0.014 });
   },
 
   /** シンボルが壊れた */
