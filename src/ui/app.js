@@ -10,6 +10,7 @@ import {
 import { getDef, RARITY_LABEL, SYMBOLS } from '../core/symbols.js';
 import { ITEMS } from '../core/items.js';
 import { CELLS } from '../core/board.js';
+import { injectSprites, iconMarkup } from './sprites.js';
 import { DIFFICULTIES, TOTAL_PERIODS, rentFor, spinsFor } from '../core/rent.js';
 import { dailySeed } from '../core/rng.js';
 import { load, save } from '../core/save.js';
@@ -62,6 +63,7 @@ for (let i = 0; i < CELLS; i++) {
 init();
 
 function init() {
+  injectSprites();
   const data = load();
   meta = data.meta;
   run = data.run && data.run.phase !== 'over' && data.run.phase !== 'clear'
@@ -123,7 +125,7 @@ function renderAll() {
 function clearBoard() {
   for (const c of cells) {
     c.root.className = 'cell empty';
-    c.emoji.textContent = '';
+    c.emoji.innerHTML = '';
     c.gain.textContent = '';
     c.gain.classList.remove('show');
   }
@@ -135,12 +137,12 @@ function paintBoard(placed, { withGains = false } = {}) {
     const c = cells[i];
     if (!p) {
       c.root.className = 'cell empty';
-      c.emoji.textContent = '';
+      c.emoji.innerHTML = '';
       c.gain.textContent = '';
       continue;
     }
     c.root.className = 'cell' + (p.destroyed ? ' dead' : '');
-    c.emoji.textContent = p.def.emoji;
+    c.emoji.innerHTML = iconMarkup(p.def);
     if (withGains && !p.destroyed && p.gain > 0) {
       c.gain.textContent = p.gain;
       c.gain.classList.add('show');
@@ -256,7 +258,7 @@ function showOffer() {
     const card = document.createElement('div');
     card.className = 'card';
     card.innerHTML = `
-      <div class="card-emoji">${def.emoji}</div>
+      <div class="card-emoji">${iconMarkup(def)}</div>
       <div class="card-name">${def.name}</div>
       <div class="card-desc">${def.desc}</div>
       <div class="card-stars">${'★'.repeat(RARITY_LABEL[def.rarity])}${'☆'.repeat(4 - RARITY_LABEL[def.rarity])}</div>
@@ -351,7 +353,7 @@ function renderShopItems() {
     const b = document.createElement('button');
     b.className = 'shop-item';
     b.disabled = run.coins < it.price;
-    b.innerHTML = `<span class="ico">${it.emoji}</span>
+    b.innerHTML = `<span class="ico">${iconMarkup(it)}</span>
       <span><span class="nm">${it.name}</span><br><span class="ds">${it.desc}</span></span>
       <span class="pr">${it.price}</span>`;
     b.addEventListener('click', () => {
@@ -369,7 +371,7 @@ function renderRemoveGrid() {
   for (const g of groups) {
     const chip = document.createElement('button');
     chip.className = 'chip';
-    chip.innerHTML = `${g.def.emoji}${g.count > 1 ? `<span class="n">${g.count}</span>` : ''}`;
+    chip.innerHTML = `${iconMarkup(g.def)}${g.count > 1 ? `<span class="n">${g.count}</span>` : ''}`;
     chip.addEventListener('click', () => {
       if (armedChip !== chip) {
         if (armedChip) armedChip.classList.remove('armed');
@@ -411,13 +413,13 @@ function showDeck() {
   el.deckSub.innerHTML =
     `${run.inventory.length} 個 ／ 1スピンに出る確率 <b>${rate}%</b><br>` +
     (run.items.length
-      ? '持ち物 ' + run.items.map((i) => `${ITEMS[i].emoji}${ITEMS[i].name}`).join('・')
+      ? '持ち物 ' + run.items.map((i) => `${iconMarkup(ITEMS[i], 'sp-inline')}${ITEMS[i].name}`).join('・')
       : '持ち物なし');
   el.deckList.innerHTML = '';
   for (const g of groupInventory()) {
     const chip = document.createElement('button');
     chip.className = 'chip';
-    chip.innerHTML = `${g.def.emoji}${g.count > 1 ? `<span class="n">${g.count}</span>` : ''}`;
+    chip.innerHTML = `${iconMarkup(g.def)}${g.count > 1 ? `<span class="n">${g.count}</span>` : ''}`;
     chip.addEventListener('click', (e) => showTipFor(g.def, e.currentTarget));
     el.deckList.appendChild(chip);
   }
@@ -460,7 +462,7 @@ function showResult() {
       `<span style="color:var(--danger)">${r.short.toLocaleString()} コイン足りませんでした。</span>`;
 
   el.resultDeck.innerHTML = groupInventory()
-    .map((g) => `<span>${g.def.emoji}${g.count > 1 ? `<b>${g.count}</b>` : ''}</span>`)
+    .map((g) => `<span>${iconMarkup(g.def, 'sp-inline')}${g.count > 1 ? `<b>${g.count}</b>` : ''}</span>`)
     .join('');
 
   meta.records.unshift({
@@ -526,7 +528,7 @@ function bindLongPress(node, index) {
 }
 
 function showTipFor(def, anchor) {
-  el.tip.innerHTML = `<div class="t">${def.emoji} ${def.name}</div>${def.desc}`;
+  el.tip.innerHTML = `<div class="t">${iconMarkup(def, 'sp-inline')} ${def.name}</div>${def.desc}`;
   el.tip.hidden = false;
   const r = anchor.getBoundingClientRect();
   const a = el.app.getBoundingClientRect();

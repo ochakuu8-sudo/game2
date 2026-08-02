@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>スプライト一覧（開発用）</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; }
+  .band { padding: 18px 16px 22px; }
+  .band.dark  { background: #17130f; color: #f3e9dc; }
+  .band.light { background: #efe6d8; color: #2e2519; }
+  h2 { font-size: 13px; font-weight: 700; margin: 0 0 12px; opacity: .7; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px; }
+  .item { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .tile {
+    width: 76px; height: 76px; border-radius: 12px;
+    display: grid; place-items: center;
+  }
+  .dark  .tile { background: #362a20; }
+  .light .tile { background: #f2e8d7; }
+  .sp { width: 60px; height: 60px; display: block; }
+  .sp-emoji { font-size: 46px; line-height: 1; }
+  .nm { font-size: 10px; opacity: .75; text-align: center; }
+  /* 実際の盤面サイズ（1マス 82px 相当）での見え方 */
+  .small .tile { width: 40px; height: 40px; border-radius: 7px; }
+  .small .sp { width: 30px; height: 30px; }
+  .small .sp-emoji { font-size: 23px; }
+  .small .grid { grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; }
+  .small .nm { display: none; }
+</style>
+</head>
+<body>
+<div class="band dark"><h2>ダーク背景 / 60px</h2><div class="grid" id="d"></div></div>
+<div class="band light"><h2>ライト背景 / 60px</h2><div class="grid" id="l"></div></div>
+<div class="band dark small"><h2>ダーク背景 / 30px（縮小して潰れないかの確認）</h2><div class="grid" id="s"></div></div>
+<script type="module">
+import { injectSprites, iconMarkup } from '../src/ui/sprites.js';
+import { SYMBOL_LIST } from '../src/core/symbols.js';
+import { ITEM_LIST } from '../src/core/items.js';
+
+injectSprites();
+const all = [...SYMBOL_LIST, ...ITEM_LIST];
+for (const id of ['d', 'l', 's']) {
+  document.getElementById(id).innerHTML = all.map((def) => `
+    <div class="item">
+      <div class="tile">${iconMarkup(def)}</div>
+      <div class="nm">${def.name}</div>
+    </div>`).join('');
+}
+</script>
+</body>
+</html>
