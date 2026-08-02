@@ -415,7 +415,7 @@ const COIN_SUCK_MS = 400;
  * 小さすぎる（例: 16ms）と複数枚がほぼ同時に着地してしまい、音が1つの塊に
  * 潰れて聞こえる。「1枚ずつ、ジャラッ、ジャラッ」と聞き取れる間隔まで開ける。
  */
-const ABSORB_STAGGER_MS = 65;
+const ABSORB_STAGGER_MS = 32;
 
 /** #app を基準にした要素中心の座標（コイン要素をそこに絶対配置するため） */
 function centerOf(node) {
