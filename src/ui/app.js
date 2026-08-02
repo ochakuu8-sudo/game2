@@ -230,7 +230,7 @@ async function animateSpin(result, coinsBefore) {
   }
   clearHot();
 
-  // ── 3. 特殊効果を 1手ずつ（1つあたり 0.5 秒） ──────
+  // ── 3. 特殊効果を 1コンボずつ（1つあたり 0.5 秒） ─────
   // エンジンが残した実行ログを再生するだけ。ここでルールを再現しない。
   for (const beat of groupSteps(result.steps)) {
     if (skipRequested) break;
@@ -239,15 +239,27 @@ async function animateSpin(result, coinsBefore) {
   }
   clearMarks();
 
-  // スキップされた場合、または財布などの盤面外の加算ぶんを最後に合わせる
-  let running = total();
-  if (running !== result.subtotal) {
+  let running;
+  if (skipRequested) {
+    // スキップされた場合は、残りをすべて即座に確定値へ合わせる
     for (const p of placed) {
       if (p.destroyed) { cells[p.index].root.classList.add('dead'); continue; }
       if (p.gain > 0) revealCellGain(p.index, p.gain, { silent: true });
     }
     running = result.subtotal;
     setGainText(`+${running.toLocaleString()}`);
+  } else {
+    // ①②のマス表示だけでは説明できない差分（ボロ財布の定額ボーナス等、
+    // 盤面のどのマスの手柄でもない加算）が残っていたら、最後にもう1段
+    // アニメーションで足す。ここを無音で飛ばすと、アイテム所持時だけ
+    // 「合計金額になるまで一つずつ」の流れが最後に無言でジャンプして壊れる。
+    const bonus = result.subtotal - total();
+    running = result.subtotal;
+    if (bonus !== 0) {
+      setGainText(`+${running.toLocaleString()}`);
+      sfx.cash();
+      await wait(fast ? 0 : EFFECT_STEP_MS);
+    }
   }
 
   // ── 4. 合計への倍率（龍神など） ────────────────────
