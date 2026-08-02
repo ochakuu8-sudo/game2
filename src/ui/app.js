@@ -284,22 +284,32 @@ const BASE_STEP_MS = 100;
 const EFFECT_STEP_MS = 500;
 
 /**
- * 実行ログを「1手」の単位にまとめる。
- * 同じシンボルが続けて起こした操作は 1手に束ねる
- * （ノラ猫がネズミを壊して報酬を得る一連の流れが、3手に割れないように）。
+ * 実行ログを「1コンボ」の単位にまとめる。
+ *
+ * 1コンボ = 1つのシンボルが、1つの相手に対して起こす一連の作用。
+ * エンジン側が付けた comboKey（相手が誰か）が変われば新しいコンボとして区切る。
+ * これにより、おばあちゃんが隣の住人3人を強化するなら3コンボに分かれ、
+ * ノラ猫がネズミを2匹食べるなら（破壊→死亡時効果→報酬、という3操作が1匹分）2コンボに分かれる。
+ *
+ * comboKey が null（相手が特定できない自己完結の操作）の場合は、常に単独の1コンボにする。
+ * 同じ主体・同じ null キーの操作を安易に束ねると、無関係な操作まで混ざる恐れがあるため。
  */
 function groupSteps(steps) {
   const beats = [];
+  let lastSource = null;
+  let lastKey = null;
   for (const s of steps ?? []) {
     if (s.silent || s.source == null) continue;
-    const last = beats[beats.length - 1];
-    if (last && last.source === s.source) last.steps.push(s);
+    const sameCombo = s.comboKey != null && s.source === lastSource && s.comboKey === lastKey;
+    if (sameCombo) beats[beats.length - 1].steps.push(s);
     else beats.push({ source: s.source, steps: [s] });
+    lastSource = s.source;
+    lastKey = s.comboKey;
   }
   return beats;
 }
 
-/** 1手を再生する。効果の主体と、計算に使われたシンボルを光らせる */
+/** 1コンボを再生する。効果の主体と、その相手（計算に使われたシンボル）を同時に光らせる */
 async function playBeat(beat, shown) {
   clearMarks();
   const src = cells[beat.source];
@@ -309,7 +319,7 @@ async function playBeat(beat, shown) {
   let sound = 'coin';
   for (const s of beat.steps) {
     for (const ci of s.causes ?? []) {
-      if (ci === beat.source) continue;
+      if (ci === beat.source || cells[ci].root.classList.contains('involved')) continue;
       cells[ci].root.classList.add('involved');
       markedCells.push(cells[ci].root);
     }

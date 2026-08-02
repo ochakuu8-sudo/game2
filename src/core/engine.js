@@ -123,10 +123,38 @@ export function resolveSpin(state) {
   let actor = null;
   let phaseName = '';
 
+  /**
+   * 「コンボ」の単位。UI（演出②）は、この値が変わるたびに新しい1手として区切って再生する。
+   *
+   * 1つのシンボルが複数の相手に効果を出す場合（おばあちゃんが隣の住人3人を強化する等）、
+   * 相手が変わるたびに新しいコンボとして扱う。
+   * 一方、1つの相手をめぐる複数の手続き（ノラ猫がネズミを破壊し、ネズミの死亡時効果が発動し、
+   * 猫自身がその報酬を得る、という一連の流れ）は、同じ相手＝同じコンボとして束ねる。
+   * そうしないと「1匹食べる」が3つの操作にバラけて演出される。
+   */
+  let lastComboKey = null;
+
   const shown = (p) => Math.round(p.value * p.multiplier);
 
+  function comboKeyFor(step) {
+    // 明示的な根拠（cause）があれば、それが「相手」
+    if (step.causes && step.causes.length) return step.causes.join(',');
+    // 根拠を渡していなくても、対象が自分以外ならその対象が「相手」
+    // （例: ラジオが隣の住人に +1 する時、cause は渡していないが対象は毎回変わる）
+    if (step.target != null && actor && step.target !== actor.index) return String(step.target);
+    // どちらも無い（自分自身への操作で相手が分からない）場合は、直前のコンボを継続する
+    return null;
+  }
+
   function record(step) {
-    steps.push({ source: actor?.index ?? null, phase: phaseName, ...step });
+    const key = comboKeyFor(step);
+    if (key != null) lastComboKey = key;
+    steps.push({
+      source: actor?.index ?? null,
+      phase: phaseName,
+      comboKey: key ?? lastComboKey,
+      ...step,
+    });
   }
 
   const causeIndex = (cause) => {
@@ -214,6 +242,7 @@ export function resolveSpin(state) {
       const fn = p.def.effects[phase];
       if (!fn) continue;
       actor = p;
+      lastComboKey = null; // シンボルが発動するたびに、コンボの単位をリセットする
       fn(makeCtx(p));
     }
     actor = null;
