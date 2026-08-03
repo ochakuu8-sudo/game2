@@ -35,20 +35,10 @@
         <span class="period-label">第</span><span id="period-num">1</span><span class="period-label">期</span>
       </div>
       <div id="spin-dots" class="spin-dots" aria-label="残りスピン"></div>
-      <button id="btn-menu" class="icon-btn" aria-label="メニュー">☰</button>
-    </div>
-    <div class="rent-row">
-      <div class="rent-bar" role="img" aria-label="家賃の進捗">
-        <div id="rent-fill" class="rent-fill"></div>
-        <div class="rent-text">
-          <span class="rent-label">家賃</span>
-          <span id="rent-amount">25</span>
-          <span id="rent-short" class="rent-short"></span>
-        </div>
-      </div>
       <div class="coins">
         <span class="coin-icon">💰</span><span id="coins">0</span>
       </div>
+      <button id="btn-menu" class="icon-btn" aria-label="メニュー">☰</button>
     </div>
   </header>
 
@@ -65,6 +55,20 @@
   <!-- コインが飛び散って合計へ吸い込まれる演出専用のレイヤー。盤面もヘッダーもまたぐので、
        個々のマスやgain-areaの中ではなく #app 直下に敷く -->
   <div id="coin-layer" class="coin-layer" aria-hidden="true"></div>
+
+  <!-- ───────── 家賃ゲージ ─────────
+       コインが吸い込まれるタイミングに合わせて視覚的に増えていく演出のため、
+       コインの着地点（gain-area）に近い画面下部に置く -->
+  <div class="rent-bottom">
+    <div class="rent-bar" role="img" aria-label="家賃の進捗">
+      <div id="rent-fill" class="rent-fill"></div>
+      <div class="rent-text">
+        <span class="rent-label">家賃</span>
+        <span id="rent-amount">25</span>
+        <span id="rent-short" class="rent-short"></span>
+      </div>
+    </div>
+  </div>
 
   <!-- ───────── 操作 ───────── -->
   <footer class="controls">

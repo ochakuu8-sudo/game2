@@ -288,7 +288,9 @@ async function animateSpin(result, coinsBefore) {
   // ── 5. 財布に入る ────────────────────────────────
   // ここまで散らばって待機していたコインを、全部まとめて合計へ吸い込む。
   // 「①②の演出中はコインは画面に散らばるだけ、全部終わってから一気に集まる」
-  absorbAllCoins();
+  // absorbAllCoins() が返す Promise を待つことで、3択・ショップ等の次の
+  // 画面は、コインが画面上から全部消えるまで絶対に出ないようにする。
+  const absorbed = absorbAllCoins(coinsBefore);
   clearHot();
   setGainText(`+${result.total.toLocaleString()}`);
   el.gain.classList.toggle('big', result.totalMultiplier > 1 || result.total >= 200);
@@ -296,7 +298,7 @@ async function animateSpin(result, coinsBefore) {
   el.coins.classList.remove('bump');
   void el.coins.offsetWidth;
   el.coins.classList.add('bump');
-  await countUp(coinsBefore, run.coins, fast ? 0 : 220);
+  await Promise.all([absorbed, countUp(coinsBefore, run.coins, fast ? 0 : 220)]);
   await wait(fast ? 0 : 80);
 }
 
@@ -510,7 +512,7 @@ let activeCoins = new Set();
  * その場合に「まだ散らばり中だったコイン」を取りこぼさないよう、absorbAllCoins()
  * 呼び出し後に散らばり終えたコインも、この共有スケジュールに乗せて出発させる。
  */
-let absorbing = null; // null か { to, nextSlotAt }
+let absorbing = null; // null か { to, nextSlotAt, onLand }
 
 /**
  * コイン1枚を生成し、散らばるところまでを再生する。
@@ -542,12 +544,59 @@ function spawnCoin(from, kind, rest) {
  * 1枚ずつ ABSORB_STAGGER_MS の等間隔で吸い込み始めることで、
  * 「チッ、チッ、チッ」と1枚ずつ聞き分けられる連続音にする。
  * 呼び出し後に散らばり終える遅れてきたコインも absorbing フラグを見て自動的に合流する。
+ *
+ * **全部吸い込み終わるまで待てるように Promise を返す。**
+ * 「3択選択はコインの演出が全て完全に終わってからにしてください」という
+ * 要望を受けた変更 ── 以前はここを待たずに次の画面（3択・ショップ等）へ
+ * 進んでいたため、コインがまだ画面を飛んでいる最中に3択が出てしまっていた。
+ *
+ * 合わせて、着地するたびに家賃ゲージ（rent-fill）を少しずつ伸ばす。
+ * 「コインが吸い込まれるタイミングに合わせてゲージが増える」演出のため、
+ * 呼び出し時点の割合(pctBefore)→このスピン確定後の割合(pctAfter)を、
+ * 「今まで何枚のうち何枚が着地したか」の比率で線形補間する。
+ *
+ * 画面タップでのスキップは、wait() と同じ `skipResolve` の1枠を共有する。
+ * ここが「待っている最中」に呼ばれる唯一の処理なので、他の wait() 呼び出しと
+ * 競合することはない（常に直列に実行されるため）。
  */
-function absorbAllCoins() {
+function absorbAllCoins(coinsBefore) {
   const coins = scatteredCoins;
   scatteredCoins = [];
-  absorbing = { to: centerOf(el.gain), nextSlotAt: performance.now() };
-  for (const c of coins) scheduleAbsorb(c.el, { x: c.x, y: c.y });
+  const totalToLand = activeCoins.size; // 散らばり中のstragglerも含めた総数
+  const pctBefore = rentPct(coinsBefore);
+  const pctAfter = rentPct(run.coins);
+
+  return new Promise((resolve) => {
+    let landed = 0;
+    const finish = () => {
+      clearScatteredCoins();
+      setRentFillPct(pctAfter);
+      skipResolve = null;
+      resolve();
+    };
+    if (totalToLand === 0) { finish(); return; }
+    skipResolve = finish;
+    absorbing = {
+      to: centerOf(el.gain),
+      nextSlotAt: performance.now(),
+      onLand: () => {
+        landed++;
+        setRentFillPct(lerp(pctBefore, pctAfter, landed / totalToLand));
+        if (landed >= totalToLand) finish();
+      },
+    };
+    for (const c of coins) scheduleAbsorb(c.el, { x: c.x, y: c.y });
+  });
+}
+
+/** 家賃ゲージの割合（%、100で頭打ち）。renderAll() の計算式と揃えてある */
+function rentPct(coins) {
+  const rent = rentFor(run.period, run.difficulty);
+  return Math.min(100, (coins / rent) * 100);
+}
+
+function setRentFillPct(pct) {
+  el.rentFill.style.width = `${pct}%`;
 }
 
 /**
@@ -596,6 +645,7 @@ function suckIn(coin, from, to) {
       sfx.coinLand();
       activeCoins.delete(coin);
       coin.remove();
+      absorbing?.onLand?.();
     }
   };
   requestAnimationFrame(step);

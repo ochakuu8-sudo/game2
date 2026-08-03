@@ -101,8 +101,6 @@ body {
   font-size: 17px; padding: 4px 2px; cursor: pointer;
 }
 
-.rent-row { display: flex; align-items: center; gap: 10px; }
-
 .rent-bar {
   position: relative; flex: 1; height: 26px;
   background: var(--panel); border: 1px solid var(--line);
@@ -298,6 +296,17 @@ body {
 .gain.show { opacity: 1; animation: gainIn .3s ease-out; }
 .gain.big { color: #ffd76a; text-shadow: 0 0 18px rgba(255,200,80,.55); }
 @keyframes gainIn { from { transform: translateY(7px) scale(.9); opacity: 0; } }
+
+/* ───────────────── 家賃ゲージ（画面下部） ─────────────────
+ * コインがgain-areaへ吸い込まれるタイミングに合わせて、着地するたびに
+ * rent-fillのwidthを少しずつ伸ばす（app.js側）。ここでは`transition: width`
+ * を使い、細かい離散的な更新（32ms間隔）を滑らかな連続した伸びに見せている。
+ */
+.rent-bottom {
+  flex: 0 0 auto;
+  display: flex;
+  padding: 0 14px 8px;
+}
 
 /* ───────────────── 操作 ───────────────── */
 
@@ -502,7 +511,7 @@ body {
 /* 3択シートが出ている間は、盤面を隠さないように盤面側を縮める。
    実際の削り幅は app.js が シートの実測高さ から算出して --sheet-overlap に入れる。 */
 .app.offering .board-area { padding-bottom: var(--sheet-overlap, 74px); }
-.app.offering .controls { visibility: hidden; }
+.app.offering .controls, .app.offering .rent-bottom { visibility: hidden; }
 /* 選択時に「もう一度タップで決定」が増えてもシートの高さが変わらないよう場所を確保 */
 .card-confirm { min-height: 1.25em; }
 
