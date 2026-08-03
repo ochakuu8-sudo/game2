@@ -290,15 +290,15 @@ async function animateSpin(result, coinsBefore) {
   // 「①②の演出中はコインは画面に散らばるだけ、全部終わってから一気に集まる」
   // absorbAllCoins() が返す Promise を待つことで、3択・ショップ等の次の
   // 画面は、コインが画面上から全部消えるまで絶対に出ないようにする。
-  const absorbed = absorbAllCoins(coinsBefore);
+  // 獲得表示（gain-area）の最終値も、ここで即座に書き換えず
+  // absorbAllCoins() 側で着地に合わせて増やす。
   clearHot();
-  setGainText(`+${result.total.toLocaleString()}`);
   el.gain.classList.toggle('big', result.totalMultiplier > 1 || result.total >= 200);
   sfx.cash();
   el.coins.classList.remove('bump');
   void el.coins.offsetWidth;
   el.coins.classList.add('bump');
-  await absorbed;
+  await absorbAllCoins(coinsBefore, running, result.total);
   await wait(fast ? 0 : 80);
 }
 
@@ -573,21 +573,26 @@ function spawnCoin(from, kind, rest) {
  * 要望を受けた変更 ── 以前はここを待たずに次の画面（3択・ショップ等）へ
  * 進んでいたため、コインがまだ画面を飛んでいる最中に3択が出てしまっていた。
  *
- * 合わせて、着地するたびに家賃ゲージ（rent-fill）と所持コイン表示
- * （#coins）の両方を少しずつ増やす。「コインが吸い込まれるタイミングに
- * 合わせて数字が増える」演出のため、どちらも独立した固定尺のタイマー
- * （以前は #coins 側だけ countUp() という別のアニメーションを持っていた）
- * ではなく、この同じ着地イベントを共通の駆動源にする。呼び出し時点の値
- * （coinsBefore）→このスピン確定後の値（run.coins）を、「今まで何枚の
- * うち何枚が着地したか」の比率で線形補間する。所持コイン表示は、
- * 最初の1枚が着地するまでは coinsBefore のまま動かない（＝合計は
- * 演出の開始時点ではまだ表示しない）。
+ * 合わせて、着地するたびに家賃ゲージ（rent-fill）・所持コイン表示
+ * （#coins）・画面下の獲得表示（gain-area の `+N`）の3つを少しずつ増やす。
+ * 「コインが吸い込まれるタイミングに合わせて数字が増える」演出のため、
+ * どれも独立した固定尺のタイマー（以前は #coins が countUp()、gain-area は
+ * ここに来た瞬間に result.total へ即座に書き換えていた）ではなく、この
+ * 同じ着地イベントを共通の駆動源にする。呼び出し時点の値
+ * （coinsBefore / gainBefore）→このスピン確定後の値（run.coins /
+ * gainAfter）を、「今まで何枚のうち何枚が着地したか」の比率で線形補間
+ * する。所持コインも獲得表示も、最初の1枚が着地するまでは呼び出し時点の
+ * 値のまま動かない（＝最終的な数字は演出の開始時点ではまだ表示しない）。
+ * gainBefore は倍率反映前の subtotal（`running`）で、gainAfter は倍率
+ * 反映後の最終値（`result.total`）── 倍率が乗る演出（④）で見せていた
+ * 「+53 × 3」の×表記も、ここで着地に合わせて実際に増えていく素の数字
+ * 表示に切り替わる。
  *
  * 画面タップでのスキップは、wait() と同じ `skipResolve` の1枠を共有する。
  * ここが「待っている最中」に呼ばれる唯一の処理なので、他の wait() 呼び出しと
  * 競合することはない（常に直列に実行されるため）。
  */
-function absorbAllCoins(coinsBefore) {
+function absorbAllCoins(coinsBefore, gainBefore, gainAfter) {
   const coins = scatteredCoins;
   scatteredCoins = [];
   const totalToLand = activeCoins.size; // 散らばり中のstragglerも含めた総数
@@ -601,6 +606,7 @@ function absorbAllCoins(coinsBefore) {
       clearScatteredCoins();
       setRentFillPct(pctAfter);
       el.coins.textContent = run.coins.toLocaleString();
+      setGainText(`+${gainAfter.toLocaleString()}`);
       skipResolve = null;
       resolve();
     };
@@ -613,11 +619,15 @@ function absorbAllCoins(coinsBefore) {
       clearScatteredCoins();
       setRentFillPct(pctAfter);
       el.coins.textContent = run.coins.toLocaleString();
+      setGainText(`+${gainAfter.toLocaleString()}`);
       skipResolve = null;
       await wait(fast ? 0 : RENT_FILL_TRANSITION_MS);
       resolve();
     };
     if (totalToLand === 0) { forceFinish(); return; }
+    // ×倍率の表記はここで役目を終える。着地に合わせて増えていく素の
+    // 数字表示に切り替える（この時点では gainBefore のまま、まだ動かない）
+    setGainText(`+${gainBefore.toLocaleString()}`);
     skipResolve = forceFinish;
     absorbing = {
       to: centerOf(el.gain),
@@ -627,6 +637,7 @@ function absorbAllCoins(coinsBefore) {
         const k = landed / totalToLand;
         setRentFillPct(lerp(pctBefore, pctAfter, k));
         el.coins.textContent = Math.round(lerp(coinsBefore, run.coins, k)).toLocaleString();
+        setGainText(`+${Math.round(lerp(gainBefore, gainAfter, k)).toLocaleString()}`);
         if (landed >= totalToLand) naturalFinish();
       },
     };
