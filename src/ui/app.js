@@ -227,31 +227,27 @@ async function animateSpin(result, coinsBefore) {
   // ── 2. 基礎金額ぶんのコインを飛ばす（1マスあたり 0.1 秒基準） ──
   // ②のコンボ間隔と同じ理屈：固定のBASE_STEP_MSと、コインが出きるまでの
   // 時間の長い方を待つ。①も「1マスにつき1コンボ」という認識に合わせた。
-  let step = 0;
+  // 獲得表示（gain-area）はここでは一切更新しない ── 全部コインの動きで
+  // 表現し、実際にコインが財布へ着地するまで数字は増やさない（5参照）。
   for (const p of placed) {
     if (skipRequested) break;
     if (p.base <= 0) continue;
     shown.set(p.index, p.base);
     pulseCell(p.index);
     const burst = burstCoins(p.index, p.base, 'add');
-    setGainText(`+${total().toLocaleString()}`);
-    // sfx.coin(step++); // 一時的に無効化 ── coinPop/coinLandだけの音と聴き比べ中
-    step++;
     await Promise.all([wait(fast ? 0 : BASE_STEP_MS), burst]);
   }
   clearHot();
 
-  // ── 3. 特殊効果を 1コンボずつ（1つあたり 0.2 秒） ─────
+  // ── 3. 特殊効果を 1コンボずつ（1つあたり 0.1 秒） ─────
   // エンジンが残した実行ログを再生するだけ。ここでルールを再現しない。
   let comboIndex = 0;
   for (const beat of groupSteps(result.steps)) {
     if (skipRequested) break;
     await playBeat(beat, shown, comboIndex++);
-    setGainText(`+${total().toLocaleString()}`);
   }
   clearMarks();
 
-  let running;
   if (skipRequested) {
     // スキップされた場合は、残りをすべて即座に確定値へ合わせる。
     // 散らばって待っているコインも、飛ばしている暇はないので即座に片付ける
@@ -259,29 +255,34 @@ async function animateSpin(result, coinsBefore) {
       if (p.destroyed) cells[p.index].root.classList.add('dead');
     }
     clearScatteredCoins();
-    running = result.subtotal;
-    setGainText(`+${running.toLocaleString()}`);
   } else {
     // ①②のマス表示だけでは説明できない差分（ボロ財布の定額ボーナス等、
-    // 盤面のどのマスの手柄でもない加算）が残っていたら、最後にもう1段
-    // アニメーションで足す。ここを無音で飛ばすと、アイテム所持時だけ
-    // 「合計金額になるまで一つずつ」の流れが最後に無言でジャンプして壊れる。
+    // 盤面のどのマスの手柄でもない加算）も、無音で飛ばさずコインで見せる。
+    // 紐付くマスが無いので、財布アイコンの位置から湧き出るように飛ばす
+    // （「全部コインで表現してほしい」という要望）。
     const bonus = result.subtotal - total();
-    running = result.subtotal;
-    if (bonus !== 0) {
-      setGainText(`+${running.toLocaleString()}`);
-      sfx.cash();
-      await wait(fast ? 0 : EFFECT_STEP_MS);
+    if (bonus > 0) {
+      await Promise.all([wait(fast ? 0 : EFFECT_STEP_MS), burstCoinsFrom(centerOf(el.coins), bonus, 'add')]);
     }
-  }
 
-  // ── 4. 合計への倍率（龍神など） ────────────────────
-  if (result.totalMultiplier > 1) {
-    el.gain.classList.add('big');
-    if (!fast && !skipRequested) {
-      setGainText(`+${running.toLocaleString()} × ${result.totalMultiplier}`);
+    // ── 4. 合計への倍率（龍神など） ────────────────────
+    // 以前は「+53 × 3」という数字とテキストで見せていたが、これも
+    // コインで表現する。倍率を発動させたシンボルのマスを光らせ、
+    // 倍率ぶんの差分（result.total - result.subtotal）をそこから飛ばす。
+    // 発動元のマスが分からない場合（アイテム由来の倍率等）は、ボーナスと
+    // 同じく財布アイコンの位置から飛ばす。
+    const multExtra = result.total - result.subtotal;
+    if (multExtra > 0) {
+      el.gain.classList.add('big');
+      const multStep = result.steps.find((s) => s.kind === 'totalMult');
       sfx.multiply();
-      await wait(340);
+      if (multStep?.source != null) {
+        pulseCell(multStep.source);
+        await Promise.all([wait(fast ? 0 : EFFECT_STEP_MS), burstCoins(multStep.source, multExtra, 'mult')]);
+        clearHot();
+      } else {
+        await Promise.all([wait(fast ? 0 : EFFECT_STEP_MS), burstCoinsFrom(centerOf(el.coins), multExtra, 'mult')]);
+      }
     }
   }
 
@@ -290,15 +291,14 @@ async function animateSpin(result, coinsBefore) {
   // 「①②の演出中はコインは画面に散らばるだけ、全部終わってから一気に集まる」
   // absorbAllCoins() が返す Promise を待つことで、3択・ショップ等の次の
   // 画面は、コインが画面上から全部消えるまで絶対に出ないようにする。
-  // 獲得表示（gain-area）の最終値も、ここで即座に書き換えず
-  // absorbAllCoins() 側で着地に合わせて増やす。
+  // 獲得表示（gain-area）はここまで一度も表示していない（0扱い）ので、
+  // 着地に合わせて 0 → result.total まで丸ごと増えていく。
   clearHot();
   el.gain.classList.toggle('big', result.totalMultiplier > 1 || result.total >= 200);
-  sfx.cash();
   el.coins.classList.remove('bump');
   void el.coins.offsetWidth;
   el.coins.classList.add('bump');
-  await absorbAllCoins(coinsBefore, running, result.total);
+  await absorbAllCoins(coinsBefore, 0, result.total);
   await wait(fast ? 0 : 80);
 }
 
@@ -407,14 +407,23 @@ async function playBeat(beat, shown, comboIndex) {
  * 次のコンボまでの間隔も伸びるようにするため。
  */
 function burstCoins(index, amount, kind) {
+  if (fast || amount <= 0 || REDUCED_MOTION) return Promise.resolve();
+  showScoreBadge(index, amount);
+  return burstCoinsFrom(centerOf(cells[index].root), amount, kind);
+}
+
+/**
+ * burstCoins() の中身（盤面のマスに紐付かない発生源からの飛翔）。
+ * 倍率演出やアイテムの定額ボーナスなど、「特定の1マスの手柄ではない」
+ * 増加もコインで表現するために、マス番号を要らない形で切り出した
+ * （マスに紐付かないぶん、そのマス用のスコアバッジは出さない）。
+ */
+function burstCoinsFrom(from, amount, kind) {
   // コインの飛翔は CSS アニメーションではなく JS の rAF で動かしているので、
   // styles.css の prefers-reduced-motion だけでは止まらない。ここで別途弾く。
   // 情報としては欠落しない ── gain-area の合計金額は変わらず更新されるため。
   if (fast || amount <= 0 || REDUCED_MOTION) return Promise.resolve();
   const count = Math.max(1, Math.round(amount));
-  showScoreBadge(index, amount);
-
-  const from = centerOf(cells[index].root);
   const scale = Math.min(1, count / 10);
   const rests = pickScatterPositions(from, count, scale);
   return new Promise((resolve) => {
@@ -761,17 +770,14 @@ function spawnCoin(from, kind, rest) {
  * 合わせて、着地するたびに家賃ゲージ（rent-fill）・所持コイン表示
  * （#coins）・画面下の獲得表示（gain-area の `+N`）の3つを少しずつ増やす。
  * 「コインが吸い込まれるタイミングに合わせて数字が増える」演出のため、
- * どれも独立した固定尺のタイマー（以前は #coins が countUp()、gain-area は
- * ここに来た瞬間に result.total へ即座に書き換えていた）ではなく、この
- * 同じ着地イベントを共通の駆動源にする。呼び出し時点の値
- * （coinsBefore / gainBefore）→このスピン確定後の値（run.coins /
- * gainAfter）を、「今まで何枚のうち何枚が着地したか」の比率で線形補間
- * する。所持コインも獲得表示も、最初の1枚が着地するまでは呼び出し時点の
- * 値のまま動かない（＝最終的な数字は演出の開始時点ではまだ表示しない）。
- * gainBefore は倍率反映前の subtotal（`running`）で、gainAfter は倍率
- * 反映後の最終値（`result.total`）── 倍率が乗る演出（④）で見せていた
- * 「+53 × 3」の×表記も、ここで着地に合わせて実際に増えていく素の数字
- * 表示に切り替わる。
+ * どれも独立した固定尺のタイマーではなく、この同じ着地イベントを共通の
+ * 駆動源にする。呼び出し時点の値（coinsBefore / gainBefore）→このスピン
+ * 確定後の値（run.coins / gainAfter）を、「今まで何枚のうち何枚が着地
+ * したか」の比率で線形補間する。
+ * gainBefore は常に 0 で呼ばれる ── gain-area は①②③④のどの段階でも
+ * 一切更新しない（増加は全部コインの動きだけで表現し、数字はコインが
+ * 実際に着地するまで一切見せない方針）ため、財布に入る段になって初めて
+ * 0 → result.total（= gainAfter）へ丸ごと増えていく。
  *
  * 画面タップでのスキップは、wait() と同じ `skipResolve` の1枠を共有する。
  * ここが「待っている最中」に呼ばれる唯一の処理なので、他の wait() 呼び出しと
@@ -810,8 +816,8 @@ function absorbAllCoins(coinsBefore, gainBefore, gainAfter) {
       resolve();
     };
     if (totalToLand === 0) { forceFinish(); return; }
-    // ×倍率の表記はここで役目を終える。着地に合わせて増えていく素の
-    // 数字表示に切り替える（この時点では gainBefore のまま、まだ動かない）
+    // 財布に入る段になって初めて gain-area を表示する（gainBefore=0な
+    // ので「+0」から始まる）。①②③④の間は一度も表示していない。
     setGainText(`+${gainBefore.toLocaleString()}`);
     skipResolve = forceFinish;
     absorbing = {
