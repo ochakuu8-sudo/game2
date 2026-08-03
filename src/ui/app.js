@@ -345,6 +345,7 @@ async function playBeat(beat, shown, comboIndex) {
   markedCells.push(src.root);
 
   let sound = 'coin';
+  const bursts = [];
   for (const s of beat.steps) {
     for (const ci of s.causes ?? []) {
       if (ci === beat.source || cells[ci].root.classList.contains('involved')) continue;
@@ -357,13 +358,13 @@ async function playBeat(beat, shown, comboIndex) {
       sound = 'destroy';
     } else if (s.kind === 'mult') {
       const before = shown.get(s.target) ?? 0;
-      burstCoins(s.target, s.after - before, 'mult');
+      bursts.push(burstCoins(s.target, s.after - before, 'mult'));
       shown.set(s.target, s.after);
       sound = 'multiply';
     } else if (s.kind === 'add') {
       const before = shown.get(s.target) ?? 0;
       const delta = s.after - before;
-      if (delta > 0) burstCoins(s.target, delta, 'add');
+      if (delta > 0) bursts.push(burstCoins(s.target, delta, 'add'));
       shown.set(s.target, s.after);
     } else if (s.kind === 'totalMult') {
       sound = 'multiply';
@@ -374,7 +375,10 @@ async function playBeat(beat, shown, comboIndex) {
   else if (sound === 'multiply') sfx.multiply();
   // else sfx.combo(comboIndex); // 一時的に無効化 ── coinPop/coinLandだけの音と聴き比べ中
 
-  await wait(fast ? 0 : EFFECT_STEP_MS);
+  // 固定の EFFECT_STEP_MS と、コインが出きるまでの時間の長い方を待つ。
+  // 小さい効果はこれまでどおり0.2秒テンポのまま、コインの枚数が多い
+  // （＝金額が大きい）効果だけ、出きるまで自然と間隔が伸びる。
+  await Promise.all([wait(fast ? 0 : EFFECT_STEP_MS), ...bursts]);
 }
 
 /**
@@ -393,23 +397,30 @@ async function playBeat(beat, shown, comboIndex) {
  * まとめて回収する。バーストごとにバラバラ回収するより、
  * 「最後に画面じゅうのコインが一気に集まる」ほうが締めの一撃として気持ちいい。
  *
- * このバースト自体（演出をブロックしない＝await しない）は、次のコンボが
- * 始まっても並行して散らばり続ける。それが「連続して稼いでいる」勢いになる。
+ * このバーストが全部出きるまでの時間は、呼び出し側（playBeat）が
+ * 待てるように Promise で返す。「コインの出る音の長さでスコアの大きさを
+ * 感じられるようにしたい」という要望を受けて、枚数が多いバーストほど
+ * 次のコンボまでの間隔も伸びるようにするため。
  */
 function burstCoins(index, amount, kind) {
   // コインの飛翔は CSS アニメーションではなく JS の rAF で動かしているので、
   // styles.css の prefers-reduced-motion だけでは止まらない。ここで別途弾く。
   // 情報としては欠落しない ── gain-area の合計金額は変わらず更新されるため。
-  if (fast || amount <= 0 || REDUCED_MOTION) return;
+  if (fast || amount <= 0 || REDUCED_MOTION) return Promise.resolve();
   const count = Math.max(1, Math.min(20, Math.round(amount)));
   showScoreBadge(index, amount);
 
   const from = centerOf(cells[index].root);
   const scale = Math.min(1, count / 10);
   const rests = pickScatterPositions(from, count, scale);
-  for (let i = 0; i < count; i++) {
-    setTimeout(() => spawnCoin(from, kind, rests[i]), i * COIN_STAGGER_MS);
-  }
+  return new Promise((resolve) => {
+    for (let i = 0; i < count; i++) {
+      setTimeout(() => {
+        spawnCoin(from, kind, rests[i]);
+        if (i === count - 1) resolve();
+      }, i * COIN_STAGGER_MS);
+    }
+  });
 }
 
 /**
