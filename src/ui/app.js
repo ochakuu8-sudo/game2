@@ -696,7 +696,9 @@ function updateParticle(p, t) {
       // mid を制御点にした2次ベジェで、合計表示へ吸い込まれる弧を描く
       p.x = bezier2(p.from.x, p.mid.x, p.to.x, k);
       p.y = bezier2(p.from.y, p.mid.y, p.to.y, k);
-      p.scale = 1.1 - k * 0.95;
+      // 「吸い込む時、コインのサイズは小さくならなくて良い」との要望で、
+      // scaleは散らばり終了時のまま（1.1）固定にし、縮小させない。
+      // 消えていく感じはopacityのフェードだけで表現する。
       p.opacity = 1 - k * 0.85;
     } else {
       sfx.coinLand();
