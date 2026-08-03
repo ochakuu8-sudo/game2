@@ -711,7 +711,7 @@ function updateParticle(p, t) {
       // 消えていく感じはopacityのフェードだけで表現する。
       p.opacity = 1 - k * 0.85;
     } else {
-      sfx.coinLand();
+      sfx.coinLand(p.pitchStep);
       p.dead = true;
       absorbing?.onLand?.();
     }
@@ -824,6 +824,7 @@ function absorbAllCoins(coinsBefore, gainBefore, gainAfter) {
     absorbing = {
       to: centerOf(el.gain),
       nextSlotAt: performance.now(),
+      nextPitch: 0,
       onLand: () => {
         landed++;
         const k = landed / totalToLand;
@@ -856,10 +857,16 @@ function setRentFillPct(pct) {
  * 次のスピン開始時に null へリセットされる（animateSpin 冒頭）ので、
  * コールバックの中で `absorbing.to` を直接読むと、そのスピンの吸収が
  * 終わり切る前に次のスピンが始まった場合に落ちる。
+ *
+ * nextPitch も nextSlotAt と同じく「出発した順」で1ずつ進める。着地音
+ * （sfx.coinLand）はこの順番で音程を少しずつ上げるため、出発順＝着地順
+ * （ABSORB_STAGGER_MSの等間隔スケジュールなので順序は入れ替わらない）が
+ * そのまま音程の並びになる。上げ幅の頭打ちは coinLand 側で処理する。
  */
 function scheduleAbsorb(p) {
   const { to } = absorbing;
   const delay = Math.max(0, absorbing.nextSlotAt - performance.now());
+  p.pitchStep = absorbing.nextPitch++;
   absorbing.nextSlotAt += ABSORB_STAGGER_MS;
   setTimeout(() => {
     if (p.dead) return; // clearScatteredCoins で既に片付け済み

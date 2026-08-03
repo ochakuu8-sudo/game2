@@ -102,6 +102,9 @@ function noise({ dur = 0.12, gain = 0.35, from = 2000, to = 400, q = 1, delay = 
 const LADDER = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31, 33, 36];
 const note = (semitone) => 440 * Math.pow(2, semitone / 12);
 
+/** coinLand の音程が着地順に上がっていく、その頭打ちのステップ数 */
+const PITCH_STEP_MAX = 10;
+
 // ───────────────────────── 効果音 ─────────────────────────
 
 export const sfx = {
@@ -165,20 +168,21 @@ export const sfx = {
    * 短い打音。sine（純音）＋triangle（デチューンした倍音）でキラッと
    * 光らせ、アタックには高域のノイズを一滴だけ混ぜて硬さを出す。
    *
-   * 「音が派手すぎる。音程じゃなくてもいいので、元の素朴なチッチッ音を
-   * ループさせて、心地よい音になるようにして」という指摘を受けて、
-   * 音程を着地順に上げていく仕掛け（pitchStepのループ）を撤回した。
-   * 音程そのものを動かすのではなく、同じ音がABSORB_STAGGER_MS（32ms）
-   * 間隔で規則正しく繰り返される「チッチッチッ…」というリズムの心地よさ
-   * だけで聞かせる。ごく小さいランダムなゆらぎだけは残し、無機質に
-   * なりすぎないようにする。
+   * 最初期の実装（一番最初にこの音を追加した時）と同じく、着地順
+   * （pitchStep）に応じて音程が少しずつ**上がっていく**。ループ
+   * （% 12で折り返す）ではなく、上がりきったら PITCH_STEP_MAX で頭打ちに
+   * して、そこから先は同じ高さで鳴り続けるだけ ── コイン枚数に上限が
+   * ないため、際限なく上げ続けると聞き取れない高音域に突き抜けてしまう。
+   * ABSORB_STAGGER_MS（32ms）の等間隔で連続して着地するので、この上昇が
+   * 「ジャラッ、チャラチャラ…」という自然な払い出し感になる。
    */
-  coinLand() {
-    const wobble = 1 + (Math.random() - 0.5) * 0.03;
-    const freq = note(16) * wobble;
-    tone({ freq, type: 'sine', dur: 0.09, gain: 0.22 });
-    tone({ freq: freq * 2.01, type: 'triangle', dur: 0.06, gain: 0.13, delay: 0.006 });
-    noise({ dur: 0.018, gain: 0.1, from: 9000, to: 6000, q: 7 });
+  coinLand(pitchStep = 0) {
+    const step = Math.min(pitchStep, PITCH_STEP_MAX);
+    const wobble = 1 + (Math.random() - 0.5) * 0.06;
+    const freq = note(16 + step * 1.4) * wobble;
+    tone({ freq, type: 'sine', dur: 0.11, gain: 0.24 });
+    tone({ freq: freq * 2.01, type: 'triangle', dur: 0.075, gain: 0.14, delay: 0.006 });
+    noise({ dur: 0.02, gain: 0.11, from: 9000, to: 6000, q: 7 });
   },
 
   /** シンボルが壊れた */
