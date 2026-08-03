@@ -233,7 +233,8 @@ async function animateSpin(result, coinsBefore) {
     pulseCell(p.index);
     burstCoins(p.index, p.base, 'add');
     setGainText(`+${total().toLocaleString()}`);
-    sfx.coin(step++);
+    // sfx.coin(step++); // 一時的に無効化 ── coinPop/coinLandだけの音と聴き比べ中
+    step++;
     await wait(fast ? 0 : BASE_STEP_MS);
   }
   clearHot();
