@@ -568,26 +568,42 @@ function absorbAllCoins(coinsBefore) {
 
   return new Promise((resolve) => {
     let landed = 0;
-    const finish = () => {
+    // スキップ時：ゲージの見た目が伸びきるのを待たず、即座に確定する
+    const forceFinish = () => {
       clearScatteredCoins();
       setRentFillPct(pctAfter);
       skipResolve = null;
       resolve();
     };
-    if (totalToLand === 0) { finish(); return; }
-    skipResolve = finish;
+    // 通常時：最後の1枚が着地した後も、rent-fillのCSSトランジション
+    // （styles.css の `.rent-fill { transition: width .35s }`）が
+    // 見た目に追いつくまで待ってから resolve する。ここを待たないと、
+    // ゲージがまだ視覚的に伸びている途中で3択が出てしまう。
+    // wait() を使うので、この待ち時間中のタップでも即座にスキップできる。
+    const naturalFinish = async () => {
+      clearScatteredCoins();
+      setRentFillPct(pctAfter);
+      skipResolve = null;
+      await wait(fast ? 0 : RENT_FILL_TRANSITION_MS);
+      resolve();
+    };
+    if (totalToLand === 0) { forceFinish(); return; }
+    skipResolve = forceFinish;
     absorbing = {
       to: centerOf(el.gain),
       nextSlotAt: performance.now(),
       onLand: () => {
         landed++;
         setRentFillPct(lerp(pctBefore, pctAfter, landed / totalToLand));
-        if (landed >= totalToLand) finish();
+        if (landed >= totalToLand) naturalFinish();
       },
     };
     for (const c of coins) scheduleAbsorb(c.el, { x: c.x, y: c.y });
   });
 }
+
+/** styles.css の `.rent-fill { transition: width .35s }` と揃える */
+const RENT_FILL_TRANSITION_MS = 350;
 
 /** 家賃ゲージの割合（%、100で頭打ち）。renderAll() の計算式と揃えてある */
 function rentPct(coins) {
