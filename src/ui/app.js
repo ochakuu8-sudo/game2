@@ -433,24 +433,44 @@ function burstCoins(index, amount, kind) {
  * なるため、「候補をいくつか出して、一番マシなものを選ぶ」というブルー
  * ノイズ的なゆるい間引きに留める ── 見た目の自由さは保ちつつ、真上に
  * 重なるような一番目立つ被りだけを避ける。
+ *
+ * 半径（scale）は基本の見た目（枚数が少なければマスの真上に軽く、多ければ
+ * 広く）を決めるためのものだが、コインの枚数に上限が無くなったため、その
+ * 半径の中だけでは物理的に空きが無くなることがある。その場合は**半径の
+ * 外へはみ出してでも、空いている場所を優先する**（「半径からはみ出ても
+ * いいので、既存のコインと被りすぎないように配置することを優先して
+ * ほしい」という要望）。RADIUS_RINGS の倍率を内側から順に試し、
+ * MIN_GAP 以上離れた候補が見つかった時点でそのリングで確定する ──
+ * 混んでいなければ従来どおり内側の輪だけで決まり、混んでいる時だけ
+ * 外側までじわじわ広がっていく。
  */
+const SCATTER_CANDIDATES = 6;
+const SCATTER_MIN_GAP = 16; // コイン本体の直径（1.1em≒16.5px）とだいたい揃える
+const SCATTER_RADIUS_RINGS = [1, 1.8, 3, 5, 8];
+
 function pickScatterPositions(from, count, scale) {
-  const CANDIDATES = 6;
   const existing = scatteredCoins.map((c) => ({ x: c.x, y: c.y }));
   const picked = [];
   for (let i = 0; i < count; i++) {
-    let best = null;
-    let bestScore = -Infinity;
-    for (let k = 0; k < CANDIDATES; k++) {
+    picked.push(pickOneScatterPosition(from, scale, existing, picked));
+  }
+  return picked;
+}
+
+function pickOneScatterPosition(from, scale, existing, picked) {
+  let best = null;
+  let bestScore = -Infinity;
+  for (const ringMult of SCATTER_RADIUS_RINGS) {
+    for (let k = 0; k < SCATTER_CANDIDATES; k++) {
       const angle = Math.random() * Math.PI * 2;
-      const spread = (16 + Math.random() * 22) * scale;
+      const spread = (16 + Math.random() * 22) * scale * ringMult;
       const cand = { x: from.x + Math.cos(angle) * spread, y: from.y + Math.sin(angle) * spread - 8 * scale };
       const score = Math.min(nearestDist(cand, existing), nearestDist(cand, picked));
       if (score > bestScore) { bestScore = score; best = cand; }
     }
-    picked.push(best);
+    if (bestScore >= SCATTER_MIN_GAP) break; // 十分空いていれば、それ以上は広げない
   }
-  return picked;
+  return best;
 }
 
 function nearestDist(pt, pts) {
