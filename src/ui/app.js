@@ -494,9 +494,10 @@ function nearestDist(pt, pts) {
  * 45ms→24msに短縮。吸い込み側（ABSORB_STAGGER_MS）と同じ理屈で、詰めすぎると
  * coinPop の音が塊に潰れるが、24msなら短い「ジャッ」音（dur 20〜30ms）どうしが
  * ほぼ隙間なく連なりつつ1発ずつ聞き取れる範囲に収まる。
- * その後「もう少しだけ間隔を広げて」との要望を受けて30msに微調整。
+ * その後「もう少しだけ間隔を広げて」との要望を受けて30ms、さらに
+ * 「少しだけ広げて」との要望を受けて36msに微調整。
  */
-const COIN_STAGGER_MS = 30;
+const COIN_STAGGER_MS = 36;
 const COIN_SCATTER_MS = 130;
 const COIN_SUCK_MS = 400;
 /**
