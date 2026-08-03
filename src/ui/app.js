@@ -576,7 +576,7 @@ function absorbAllCoins(coinsBefore) {
       resolve();
     };
     // 通常時：最後の1枚が着地した後も、rent-fillのCSSトランジション
-    // （styles.css の `.rent-fill { transition: width .35s }`）が
+    // （styles.css の `.rent-fill { transition: width 24ms }`）が
     // 見た目に追いつくまで待ってから resolve する。ここを待たないと、
     // ゲージがまだ視覚的に伸びている途中で3択が出てしまう。
     // wait() を使うので、この待ち時間中のタップでも即座にスキップできる。
@@ -602,8 +602,8 @@ function absorbAllCoins(coinsBefore) {
   });
 }
 
-/** styles.css の `.rent-fill { transition: width .35s }` と揃える */
-const RENT_FILL_TRANSITION_MS = 350;
+/** styles.css の `.rent-fill { transition: width 24ms }` と揃える */
+const RENT_FILL_TRANSITION_MS = 24;
 
 /** 家賃ゲージの割合（%、100で頭打ち）。renderAll() の計算式と揃えてある */
 function rentPct(coins) {

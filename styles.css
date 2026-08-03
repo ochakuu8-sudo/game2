@@ -109,7 +109,14 @@ body {
 .rent-fill {
   position: absolute; inset: 0 auto 0 0; width: 0%;
   background: linear-gradient(90deg, var(--accent-2), var(--accent));
-  transition: width .35s ease-out;
+  /*
+   * コインの着地に合わせて、なめらかな連続増加ではなく「メモリが増える」
+   * ような刻んだ動きにしたいので、トランジションは短く保つ
+   * （ABSORB_STAGGER_MS=32msの着地間隔より少し短い程度）。
+   * 0にすると完全に瞬間移動でやや味気なくなるため、ごく短いスナップ感の
+   * ある動きだけ残す。app.js の RENT_FILL_TRANSITION_MS と値を揃えること。
+   */
+  transition: width 24ms linear;
 }
 .rent-fill.full { background: linear-gradient(90deg, #5a9c68, var(--good)); }
 
