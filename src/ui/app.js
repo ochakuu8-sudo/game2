@@ -443,8 +443,14 @@ function nearestDist(pt, pts) {
   return m;
 }
 
-/** コインの生成間隔。散らばり方向にはランダム性があるが、時間軸は常に固定。 */
-const COIN_STAGGER_MS = 45;
+/**
+ * コインの生成間隔。散らばり方向にはランダム性があるが、時間軸は常に固定。
+ * 「1枚ずつ高速でジャラララと出てくる感じにしたい」という要望を受けて
+ * 45ms→24msに短縮。吸い込み側（ABSORB_STAGGER_MS）と同じ理屈で、詰めすぎると
+ * coinPop の音が塊に潰れるが、24msなら短い「ジャッ」音（dur 20〜30ms）どうしが
+ * ほぼ隙間なく連なりつつ1発ずつ聞き取れる範囲に収まる。
+ */
+const COIN_STAGGER_MS = 24;
 const COIN_SCATTER_MS = 130;
 const COIN_SUCK_MS = 400;
 /**

@@ -148,12 +148,16 @@ export const sfx = {
   },
 
   /**
-   * コイン1枚が盤面から弾け出る、ごく短い「ポッ」という音。
+   * コイン1枚が盤面から弾け出る、ごく短い「ジャッ」という音。
    * 何枚も束になって鳴るので、1枚あたりは目立たせすぎない。
+   * 以前は純音の柔らかい「ポッ」だったが、高速連打（COIN_STAGGER_MS）で
+   * 重ねた時に「ジャラララ」という質感を出したかったため、着地音
+   * （coinLand）と同じ路線 ── ノイズの粒＋短いトーン ── に寄せて硬さを足した。
    */
   coinPop() {
-    const wobble = 1 + (Math.random() - 0.5) * 0.08;
-    tone({ freq: 1500 * wobble, type: 'sine', dur: 0.03, gain: 0.07 });
+    const wobble = 1 + (Math.random() - 0.5) * 0.1;
+    noise({ dur: 0.02, gain: 0.14, from: 5000 * wobble, to: 2600 * wobble, q: 5 });
+    tone({ freq: 2000 * wobble, type: 'square', dur: 0.014, gain: 0.06 });
   },
 
   /**
