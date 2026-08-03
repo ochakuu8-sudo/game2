@@ -298,7 +298,7 @@ async function animateSpin(result, coinsBefore) {
   el.coins.classList.remove('bump');
   void el.coins.offsetWidth;
   el.coins.classList.add('bump');
-  await Promise.all([absorbed, countUp(coinsBefore, run.coins, fast ? 0 : 220)]);
+  await absorbed;
   await wait(fast ? 0 : 80);
 }
 
@@ -573,10 +573,15 @@ function spawnCoin(from, kind, rest) {
  * 要望を受けた変更 ── 以前はここを待たずに次の画面（3択・ショップ等）へ
  * 進んでいたため、コインがまだ画面を飛んでいる最中に3択が出てしまっていた。
  *
- * 合わせて、着地するたびに家賃ゲージ（rent-fill）を少しずつ伸ばす。
- * 「コインが吸い込まれるタイミングに合わせてゲージが増える」演出のため、
- * 呼び出し時点の割合(pctBefore)→このスピン確定後の割合(pctAfter)を、
- * 「今まで何枚のうち何枚が着地したか」の比率で線形補間する。
+ * 合わせて、着地するたびに家賃ゲージ（rent-fill）と所持コイン表示
+ * （#coins）の両方を少しずつ増やす。「コインが吸い込まれるタイミングに
+ * 合わせて数字が増える」演出のため、どちらも独立した固定尺のタイマー
+ * （以前は #coins 側だけ countUp() という別のアニメーションを持っていた）
+ * ではなく、この同じ着地イベントを共通の駆動源にする。呼び出し時点の値
+ * （coinsBefore）→このスピン確定後の値（run.coins）を、「今まで何枚の
+ * うち何枚が着地したか」の比率で線形補間する。所持コイン表示は、
+ * 最初の1枚が着地するまでは coinsBefore のまま動かない（＝合計は
+ * 演出の開始時点ではまだ表示しない）。
  *
  * 画面タップでのスキップは、wait() と同じ `skipResolve` の1枠を共有する。
  * ここが「待っている最中」に呼ばれる唯一の処理なので、他の wait() 呼び出しと
@@ -591,10 +596,11 @@ function absorbAllCoins(coinsBefore) {
 
   return new Promise((resolve) => {
     let landed = 0;
-    // スキップ時：ゲージの見た目が伸びきるのを待たず、即座に確定する
+    // スキップ時：見た目が伸びきるのを待たず、即座に確定する
     const forceFinish = () => {
       clearScatteredCoins();
       setRentFillPct(pctAfter);
+      el.coins.textContent = run.coins.toLocaleString();
       skipResolve = null;
       resolve();
     };
@@ -606,6 +612,7 @@ function absorbAllCoins(coinsBefore) {
     const naturalFinish = async () => {
       clearScatteredCoins();
       setRentFillPct(pctAfter);
+      el.coins.textContent = run.coins.toLocaleString();
       skipResolve = null;
       await wait(fast ? 0 : RENT_FILL_TRANSITION_MS);
       resolve();
@@ -617,7 +624,9 @@ function absorbAllCoins(coinsBefore) {
       nextSlotAt: performance.now(),
       onLand: () => {
         landed++;
-        setRentFillPct(lerp(pctBefore, pctAfter, landed / totalToLand));
+        const k = landed / totalToLand;
+        setRentFillPct(lerp(pctBefore, pctAfter, k));
+        el.coins.textContent = Math.round(lerp(coinsBefore, run.coins, k)).toLocaleString();
         if (landed >= totalToLand) naturalFinish();
       },
     };
@@ -748,20 +757,6 @@ function pulseCell(index) {
 function clearHot() {
   if (hotCell) hotCell.classList.remove('hot');
   hotCell = null;
-}
-
-function countUp(from, to, ms) {
-  if (ms <= 0 || from === to) { el.coins.textContent = to.toLocaleString(); return Promise.resolve(); }
-  return new Promise((resolve) => {
-    const t0 = performance.now();
-    const step = (t) => {
-      const k = Math.min(1, (t - t0) / ms);
-      el.coins.textContent = Math.round(from + (to - from) * k).toLocaleString();
-      if (k < 1 && !skipRequested) requestAnimationFrame(step);
-      else { el.coins.textContent = to.toLocaleString(); resolve(); }
-    };
-    requestAnimationFrame(step);
-  });
 }
 
 // 画面のどこかを触ると演出を飛ばす
