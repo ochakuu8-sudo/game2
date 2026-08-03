@@ -404,9 +404,43 @@ function burstCoins(index, amount, kind) {
   showScoreBadge(index, amount);
 
   const from = centerOf(cells[index].root);
+  const scale = Math.min(1, count / 10);
+  const rests = pickScatterPositions(from, count, scale);
   for (let i = 0; i < count; i++) {
-    setTimeout(() => spawnCoin(from, kind, count), i * COIN_STAGGER_MS);
+    setTimeout(() => spawnCoin(from, kind, rests[i]), i * COIN_STAGGER_MS);
   }
+}
+
+/**
+ * 既に画面に散らばって静止しているコインと、なるべく被らない位置を選ぶ。
+ * 完全な重なり回避（衝突判定で押し出す等）はやり過ぎで散らばり方が不自然に
+ * なるため、「候補をいくつか出して、一番マシなものを選ぶ」というブルー
+ * ノイズ的なゆるい間引きに留める ── 見た目の自由さは保ちつつ、真上に
+ * 重なるような一番目立つ被りだけを避ける。
+ */
+function pickScatterPositions(from, count, scale) {
+  const CANDIDATES = 6;
+  const existing = scatteredCoins.map((c) => ({ x: c.x, y: c.y }));
+  const picked = [];
+  for (let i = 0; i < count; i++) {
+    let best = null;
+    let bestScore = -Infinity;
+    for (let k = 0; k < CANDIDATES; k++) {
+      const angle = Math.random() * Math.PI * 2;
+      const spread = (16 + Math.random() * 22) * scale;
+      const cand = { x: from.x + Math.cos(angle) * spread, y: from.y + Math.sin(angle) * spread - 8 * scale };
+      const score = Math.min(nearestDist(cand, existing), nearestDist(cand, picked));
+      if (score > bestScore) { bestScore = score; best = cand; }
+    }
+    picked.push(best);
+  }
+  return picked;
+}
+
+function nearestDist(pt, pts) {
+  let m = Infinity;
+  for (const p of pts) m = Math.min(m, Math.hypot(pt.x - p.x, pt.y - p.y));
+  return m;
 }
 
 /** コインの生成間隔。散らばり方向にはランダム性があるが、時間軸は常に固定。 */
@@ -459,24 +493,16 @@ let absorbing = null; // null か { to, nextSlotAt }
 
 /**
  * コイン1枚を生成し、散らばるところまでを再生する。
- * 散らばりの半径は、そのバーストで出たコインの枚数（count）に比例させる。
- * 1枚だけの時に今までどおりの半径で弾けると、マス1つに対して散らばりが
- * 大げさすぎて見える。逆に10枚くらいまとめて出た時は、今までの半径感が
- * ちょうどよい「ドサッ」に見える。count=10で今までどおりの半径になり、
- * それ以上は頭打ち（10枚を超えても際限なく広がると盤面をはみ出すため）。
+ * rest（散らばり終える位置）は burstCoins 側の pickScatterPositions() で
+ * 既に決まっている ── 半径をこのバーストの枚数に比例させるのと、既存の
+ * コインとなるべく被らない位置を選ぶのを、まとめてそちらで行っているため。
  */
-function spawnCoin(from, kind, count = 1) {
+function spawnCoin(from, kind, rest) {
   const coin = document.createElement('div');
   coin.className = `coin-fly coin-fly-${kind}`;
   el.coinLayer.appendChild(coin);
   activeCoins.add(coin);
   sfx.coinPop();
-
-  // 散らばる先はランダムな短い方向。見た目だけの揺らぎで、タイミングには影響しない
-  const scale = Math.min(1, count / 10);
-  const angle = Math.random() * Math.PI * 2;
-  const spread = (16 + Math.random() * 22) * scale;
-  const rest = { x: from.x + Math.cos(angle) * spread, y: from.y + Math.sin(angle) * spread - 8 * scale };
 
   const t0 = performance.now();
   const scatterStep = (t) => {
