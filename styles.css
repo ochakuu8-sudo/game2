@@ -229,6 +229,12 @@ body {
 .coin-layer {
   position: absolute;
   inset: 0;
+  /* <canvas>は置換要素なので、divと違い inset:0 だけでは親いっぱいに
+     広がらず、既定の内在サイズ(300×150px)のままになってしまう。
+     width/height を明示して確実に親いっぱいへ広げる（実際にこれが
+     無くコインが画面に表示されない不具合が起きたため必須）。 */
+  width: 100%;
+  height: 100%;
   z-index: 15;
   pointer-events: none;
 }
