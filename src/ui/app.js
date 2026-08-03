@@ -505,7 +505,15 @@ function centerOf(node) {
 }
 
 const easeOutCubic = (t) => 1 - (1 - t) ** 3;
-const easeInCubic = (t) => t * t * t;
+/**
+ * 吸い込み（合計への「弧を描いて加速しながら吸い込まれる」動き）用。
+ * 3乗（easeInCubic）だと t=1 付近で速度が急激に伸び、60fps（1フレーム
+ * 約16.7ms）でも最終フレームだけ数十px動いてしまい、「少し飛んで見える」
+ * という指摘につながった。2乗に緩めて、末尾の速度スパイクを抑える
+ * （「吸い込まれて加速する」感触は保ちつつ、コマ落ちのように見えない
+ * 範囲にする）。
+ */
+const easeInQuad = (t) => t * t;
 
 /**
  * コイン演出の描画方式について。
@@ -568,9 +576,18 @@ function buildCoinSprites() {
   };
 }
 
+/**
+ * 元のDOM版（.coin-fly-add / .coin-fly-mult、styles.css）の見た目に
+ * できるだけ寄せる：①左上寄りのグラデーション（ハイライト平坦部→中間色
+ * 平坦部→縁）②内側のリング（旧: inset box-shadow）③外側のインク輪郭線
+ * ④右下への落ち影（旧: box-shadowのドロップシャドウ成分）。
+ * 「見た目が前と変わっている」という指摘を受けて、簡略化しすぎた版から
+ * ここまで戻した。
+ */
 function renderCoinSprite({ ink, hi, mid, edge, ring }) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const size = Math.ceil(COIN_DIAMETER * 1.3); // 縁取り分の余白を持たせたCSS px相当のサイズ
+  const pad = 4; // 落ち影がにじみ出ないよう余白を持たせる
+  const size = Math.ceil(COIN_DIAMETER + pad * 2);
   const canvas = document.createElement('canvas');
   canvas.width = size * dpr;
   canvas.height = size * dpr;
@@ -580,21 +597,40 @@ function renderCoinSprite({ ink, hi, mid, edge, ring }) {
   const cy = size / 2;
   const r = COIN_DIAMETER / 2;
 
-  const grad = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.15, cx, cy, r);
+  // 落ち影だけを先に敷く（ダミー円にshadowを掛けて描き、本体は後から
+  // shadow無しで同じ位置に重ねる ── 影だけがはみ出て見える定番のやり方）
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+  ctx.shadowBlur = 2;
+  ctx.shadowOffsetX = 1;
+  ctx.shadowOffsetY = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.restore();
+
+  // 本体：左上(32%,26%)寄りのグラデーション。ハイライト～中間色を平坦に
+  // 保つ2段構成（元CSSの radial-gradient のストップ位置に合わせている）
+  const grad = ctx.createRadialGradient(cx - r * 0.36, cy - r * 0.48, r * 0.05, cx, cy, r);
   grad.addColorStop(0, hi);
-  grad.addColorStop(0.4, mid);
+  grad.addColorStop(0.1, hi);
+  grad.addColorStop(0.38, mid);
+  grad.addColorStop(0.62, mid);
   grad.addColorStop(1, edge);
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fillStyle = grad;
   ctx.fill();
 
-  ctx.lineWidth = 1.6;
+  // 内側のリング
+  ctx.lineWidth = 2;
   ctx.strokeStyle = ring;
   ctx.beginPath();
-  ctx.arc(cx, cy, r - 1.6, 0, Math.PI * 2);
+  ctx.arc(cx, cy, r - 1, 0, Math.PI * 2);
   ctx.stroke();
 
+  // 外側のインク輪郭線
   ctx.lineWidth = 1.4;
   ctx.strokeStyle = ink;
   ctx.beginPath();
@@ -648,7 +684,7 @@ function updateParticle(p, t) {
   } else if (p.state === 'suck') {
     const el0 = t - p.t0;
     if (el0 < COIN_SUCK_MS) {
-      const k = easeInCubic(el0 / COIN_SUCK_MS);
+      const k = easeInQuad(el0 / COIN_SUCK_MS);
       // mid を制御点にした2次ベジェで、合計表示へ吸い込まれる弧を描く
       p.x = bezier2(p.from.x, p.mid.x, p.to.x, k);
       p.y = bezier2(p.from.y, p.mid.y, p.to.y, k);
@@ -1229,5 +1265,6 @@ function hideAll() {
 window.__game = {
   get run() { return run; },
   get particleCount() { return particles.length; }, // コイン演出の残留確認用
+  get particles() { return particles.map((p) => ({ kind: p.kind, state: p.state, x: p.x, y: p.y, scale: p.scale })); },
   SYMBOLS, startRun, dailySeed,
 };
