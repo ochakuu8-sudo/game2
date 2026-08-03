@@ -566,25 +566,37 @@ function resizeCoinCanvas() {
   coinCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-/** add/mult それぞれの見た目を、以前の .coin-fly-add / .coin-fly-mult のグラデーションに寄せて焼く */
+/**
+ * add/mult それぞれの見た目を焼く。盤面のコインシンボル（sprites.js の
+ * `coin`: 単色フラット塗り＋内側の一段暗いリング＋左上の三日月ハイライト
+ * ストローク＋インクの輪郭線）と同じ絵作りに揃える。
+ * 「シンボルのコインに近い見た目だったはず」という指摘のとおり、これは
+ * 元々このセッションの早い段階で決めた方針（5.4.2参照）。canvas化した際に
+ * 一度、CSSのradial-gradientを模した「ぼかしたグラデーション塗り」に
+ * 差し替えてしまい、指摘を受けて盤面シンボルの技法へ戻した。
+ */
 function buildCoinSprites() {
   const style = getComputedStyle(document.documentElement);
   const ink = style.getPropertyValue('--sp-ink').trim() || '#3b2a1a';
   return {
-    add: renderCoinSprite({ ink, hi: '#fff6d8', mid: style.getPropertyValue('--accent').trim() || '#e8b44a', edge: style.getPropertyValue('--accent-2').trim() || '#c9873a', ring: style.getPropertyValue('--accent-2').trim() || '#c9873a' }),
-    mult: renderCoinSprite({ ink, hi: '#fffce8', mid: '#ffd97a', edge: '#d98a2a', ring: '#c97a1d' }),
+    // sprites.js の PALETTE.gold/goldDk/goldLt と同じ色（--accent/--accent-2 と同値）
+    add: renderCoinSprite({ ink, fill: '#e8b44a', ring: '#c9873a', highlight: '#f5d98f' }),
+    mult: renderCoinSprite({ ink, fill: '#ffd97a', ring: '#c97a1d', highlight: '#fffce8' }),
   };
 }
 
 /**
- * 元のDOM版（.coin-fly-add / .coin-fly-mult、styles.css）の見た目に
- * できるだけ寄せる：①左上寄りのグラデーション（ハイライト平坦部→中間色
- * 平坦部→縁）②内側のリング（旧: inset box-shadow）③外側のインク輪郭線
- * ④右下への落ち影（旧: box-shadowのドロップシャドウ成分）。
- * 「見た目が前と変わっている」という指摘を受けて、簡略化しすぎた版から
- * ここまで戻した。
+ * 盤面のコインシンボルと同じ4層構成で1枚を焼く：
+ *   ①単色フラットな円塗り（グラデーションではない）
+ *   ②内側の一段暗いリング（ストロークのみ、塗りなし）
+ *   ③左上の三日月形ハイライト（塗りつぶした円ではなく弧のストローク）
+ *   ④外側のインク輪郭線
+ * 加えて、重なった時の識別性のために右下への軽い落ち影も足す（ダミー円に
+ * shadowを掛けて描き、本体は後からshadow無しで同じ位置に重ねる定番の
+ * やり方）── これはDOM版の box-shadow のドロップシャドウ成分の名残で、
+ * 盤面シンボル自体には無い演出専用の味付け。
  */
-function renderCoinSprite({ ink, hi, mid, edge, ring }) {
+function renderCoinSprite({ ink, fill, ring, highlight }) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const pad = 4; // 落ち影がにじみ出ないよう余白を持たせる
   const size = Math.ceil(COIN_DIAMETER + pad * 2);
@@ -597,8 +609,6 @@ function renderCoinSprite({ ink, hi, mid, edge, ring }) {
   const cy = size / 2;
   const r = COIN_DIAMETER / 2;
 
-  // 落ち影だけを先に敷く（ダミー円にshadowを掛けて描き、本体は後から
-  // shadow無しで同じ位置に重ねる ── 影だけがはみ出て見える定番のやり方）
   ctx.save();
   ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
   ctx.shadowBlur = 2;
@@ -610,27 +620,25 @@ function renderCoinSprite({ ink, hi, mid, edge, ring }) {
   ctx.fill();
   ctx.restore();
 
-  // 本体：左上(32%,26%)寄りのグラデーション。ハイライト～中間色を平坦に
-  // 保つ2段構成（元CSSの radial-gradient のストップ位置に合わせている）
-  const grad = ctx.createRadialGradient(cx - r * 0.36, cy - r * 0.48, r * 0.05, cx, cy, r);
-  grad.addColorStop(0, hi);
-  grad.addColorStop(0.1, hi);
-  grad.addColorStop(0.38, mid);
-  grad.addColorStop(0.62, mid);
-  grad.addColorStop(1, edge);
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = grad;
+  ctx.fillStyle = fill;
   ctx.fill();
 
-  // 内側のリング
-  ctx.lineWidth = 2;
+  ctx.lineWidth = r * 0.16;
   ctx.strokeStyle = ring;
   ctx.beginPath();
-  ctx.arc(cx, cy, r - 1, 0, Math.PI * 2);
+  ctx.arc(cx, cy, r * 0.64, 0, Math.PI * 2);
   ctx.stroke();
 
-  // 外側のインク輪郭線
+  ctx.lineWidth = r * 0.27;
+  ctx.strokeStyle = highlight;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.68, (200 * Math.PI) / 180, (250 * Math.PI) / 180);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+
   ctx.lineWidth = 1.4;
   ctx.strokeStyle = ink;
   ctx.beginPath();
