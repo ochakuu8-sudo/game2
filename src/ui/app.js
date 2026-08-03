@@ -371,7 +371,7 @@ async function playBeat(beat, shown, comboIndex) {
 
   if (sound === 'destroy') sfx.destroy();
   else if (sound === 'multiply') sfx.multiply();
-  else sfx.combo(comboIndex);
+  // else sfx.combo(comboIndex); // 一時的に無効化 ── coinPop/coinLandだけの音と聴き比べ中
 
   await wait(fast ? 0 : EFFECT_STEP_MS);
 }
