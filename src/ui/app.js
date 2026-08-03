@@ -224,18 +224,20 @@ async function animateSpin(result, coinsBefore) {
   const shown = new Map();
   const total = () => [...shown.values()].reduce((a, b) => a + b, 0);
 
-  // ── 2. 基礎金額ぶんのコインを飛ばす（1マスあたり 0.1 秒固定） ──
+  // ── 2. 基礎金額ぶんのコインを飛ばす（1マスあたり 0.1 秒基準） ──
+  // ②のコンボ間隔と同じ理屈：固定のBASE_STEP_MSと、コインが出きるまでの
+  // 時間の長い方を待つ。①も「1マスにつき1コンボ」という認識に合わせた。
   let step = 0;
   for (const p of placed) {
     if (skipRequested) break;
     if (p.base <= 0) continue;
     shown.set(p.index, p.base);
     pulseCell(p.index);
-    burstCoins(p.index, p.base, 'add');
+    const burst = burstCoins(p.index, p.base, 'add');
     setGainText(`+${total().toLocaleString()}`);
     // sfx.coin(step++); // 一時的に無効化 ── coinPop/coinLandだけの音と聴き比べ中
     step++;
-    await wait(fast ? 0 : BASE_STEP_MS);
+    await Promise.all([wait(fast ? 0 : BASE_STEP_MS), burst]);
   }
   clearHot();
 
