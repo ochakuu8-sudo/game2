@@ -507,16 +507,164 @@ function centerOf(node) {
 const easeOutCubic = (t) => 1 - (1 - t) ** 3;
 const easeInCubic = (t) => t * t * t;
 
-/** 散らばって、その場に留まっているコイン。absorbAllCoins() が回収するまでここに積む */
-let scatteredCoins = [];
-
 /**
- * 生成されてから消えるまでの全コイン要素。散らばり待ちか吸い込み中かを問わない。
- * スキップ時、この Set に載っているものを全部消せば「今生きているコインを漏れなく片付ける」
- * ことになる ── scatteredCoins だけを見ていると、散らばりアニメーションの
- * 途中（まだ scatteredCoins に積まれる前）のコインを取りこぼす。
+ * コイン演出の描画方式について。
+ *
+ * 以前はコイン1枚ごとに <div class="coin-fly"> を1個生成し、コイン1枚
+ * ごとに自前の requestAnimationFrame 連鎖でスタイルを書き換えていた。
+ * コインの枚数上限を撤廃した結果、1バーストで数百枚生成されることも
+ * あるようになり、数百個のDOM要素（box-shadow・グラデーション付き）と
+ * 数百本の並行rAFループはレイアウト・ペイント・コンポジットの負荷が
+ * 重く、特に古いスマホで顕著だった。「言語構成を、古いスマホでも軽い
+ * 処理で動かせるものに変えたい（コイン演出が重い）」という要望を受けて、
+ * DOM粒子方式から単一<canvas>への一括描画方式に作り直した。
+ *
+ * - コインの見た目（インクの輪郭線＋グラデーション＋内側のリング）は
+ *   起動時に一度だけオフスクリーンcanvasへ焼き込む（buildCoinSprites）。
+ *   毎フレームはこの焼き込み済みビットマップを drawImage で貼るだけで、
+ *   グラデーションやパスの再計算をフレームごとに行わない。
+ * - 全コインの状態は軽量なプレーンオブジェクトの配列（particles）で持ち、
+ *   1本の共有 requestAnimationFrame ループ（coinLoop）が全員ぶんまとめて
+ *   「時間から位置を計算 → 描く」を行う。コインが1枚もいなければ
+ *   ループ自体を止める。
+ *
+ * 座標系・タイミング（COIN_SCATTER_MS・ABSORB_STAGGER_MS等）や散らばり
+ * 位置の選び方（pickScatterPositions）はDOM版から変えていない。
  */
-let activeCoins = new Set();
+let particles = [];
+let coinCtx = null;
+let coinCanvasSize = { w: 0, h: 0 };
+let coinSprites = null; // { add: {canvas, size}, mult: {canvas, size} }
+
+/** DOM版の .coin-fly（1.1em @ 15px）と揃えた実寸(px) */
+const COIN_DIAMETER = 16.5;
+
+/** 初回のコイン生成時に一度だけ呼ぶ。canvasの実サイズ設定とスプライト焼き込みを行う */
+function ensureCoinCanvas() {
+  if (coinCtx) return;
+  coinCtx = el.coinLayer.getContext('2d');
+  resizeCoinCanvas();
+  window.addEventListener('resize', resizeCoinCanvas);
+  coinSprites = buildCoinSprites();
+}
+
+/** 端末のdevicePixelRatioに合わせてcanvasの実ピクセル数を設定する（上限2で頭打ち＝重くなりすぎないように） */
+function resizeCoinCanvas() {
+  const rect = el.coinLayer.getBoundingClientRect();
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  coinCanvasSize = { w: rect.width, h: rect.height };
+  el.coinLayer.width = Math.round(rect.width * dpr);
+  el.coinLayer.height = Math.round(rect.height * dpr);
+  coinCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+/** add/mult それぞれの見た目を、以前の .coin-fly-add / .coin-fly-mult のグラデーションに寄せて焼く */
+function buildCoinSprites() {
+  const style = getComputedStyle(document.documentElement);
+  const ink = style.getPropertyValue('--sp-ink').trim() || '#3b2a1a';
+  return {
+    add: renderCoinSprite({ ink, hi: '#fff6d8', mid: style.getPropertyValue('--accent').trim() || '#e8b44a', edge: style.getPropertyValue('--accent-2').trim() || '#c9873a', ring: style.getPropertyValue('--accent-2').trim() || '#c9873a' }),
+    mult: renderCoinSprite({ ink, hi: '#fffce8', mid: '#ffd97a', edge: '#d98a2a', ring: '#c97a1d' }),
+  };
+}
+
+function renderCoinSprite({ ink, hi, mid, edge, ring }) {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const size = Math.ceil(COIN_DIAMETER * 1.3); // 縁取り分の余白を持たせたCSS px相当のサイズ
+  const canvas = document.createElement('canvas');
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = COIN_DIAMETER / 2;
+
+  const grad = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.15, cx, cy, r);
+  grad.addColorStop(0, hi);
+  grad.addColorStop(0.4, mid);
+  grad.addColorStop(1, edge);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = ring;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r - 1.6, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.lineWidth = 1.4;
+  ctx.strokeStyle = ink;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r - 0.7, 0, Math.PI * 2);
+  ctx.stroke();
+
+  return { canvas, size };
+}
+
+function drawParticle(p) {
+  const sprite = coinSprites[p.kind];
+  const s = sprite.size * p.scale;
+  coinCtx.globalAlpha = p.opacity;
+  coinCtx.drawImage(sprite.canvas, p.x - s / 2, p.y - s / 2, s, s);
+}
+
+let coinRafHandle = null;
+function requestCoinFrame() {
+  if (coinRafHandle == null) coinRafHandle = requestAnimationFrame(coinLoop);
+}
+
+function coinLoop(t) {
+  coinRafHandle = null;
+  coinCtx.clearRect(0, 0, coinCanvasSize.w, coinCanvasSize.h);
+  const next = [];
+  for (const p of particles) {
+    updateParticle(p, t);
+    if (p.dead) continue;
+    drawParticle(p);
+    next.push(p);
+  }
+  particles = next;
+  if (particles.length > 0) requestCoinFrame();
+}
+
+/** 1粒子ぶんの状態遷移。'scatter'（散らばり中）→'wait'（静止待機）→'suck'（吸い込み中）の3段階 */
+function updateParticle(p, t) {
+  if (p.state === 'scatter') {
+    const k = easeOutCubic(Math.min(1, (t - p.t0) / COIN_SCATTER_MS));
+    p.x = lerp(p.from.x, p.rest.x, k);
+    p.y = lerp(p.from.y, p.rest.y, k);
+    p.scale = 0.55 + k * 0.55;
+    p.opacity = 1;
+    if (k >= 1) {
+      p.x = p.rest.x;
+      p.y = p.rest.y;
+      p.state = 'wait';
+      if (absorbing) scheduleAbsorb(p);
+      else scatteredCoins.push(p);
+    }
+  } else if (p.state === 'suck') {
+    const el0 = t - p.t0;
+    if (el0 < COIN_SUCK_MS) {
+      const k = easeInCubic(el0 / COIN_SUCK_MS);
+      // mid を制御点にした2次ベジェで、合計表示へ吸い込まれる弧を描く
+      p.x = bezier2(p.from.x, p.mid.x, p.to.x, k);
+      p.y = bezier2(p.from.y, p.mid.y, p.to.y, k);
+      p.scale = 1.1 - k * 0.95;
+      p.opacity = 1 - k * 0.85;
+    } else {
+      sfx.coinLand();
+      p.dead = true;
+      absorbing?.onLand?.();
+    }
+  }
+  // 'wait' 状態は静止したまま（座標は散らばり終了時のまま変えない）
+}
+
+/** 散らばって、その場に留まっているコイン（粒子オブジェクト）。absorbAllCoins() が回収するまでここに積む */
+let scatteredCoins = [];
 
 /**
  * 「吸収はもう始まっているか」の状態。
@@ -544,22 +692,13 @@ let absorbing = null; // null か { to, nextSlotAt, onLand }
  * コインとなるべく被らない位置を選ぶのを、まとめてそちらで行っているため。
  */
 function spawnCoin(from, kind, rest) {
-  const coin = document.createElement('div');
-  coin.className = `coin-fly coin-fly-${kind}`;
-  el.coinLayer.appendChild(coin);
-  activeCoins.add(coin);
+  ensureCoinCanvas();
   sfx.coinPop();
-
-  const t0 = performance.now();
-  const scatterStep = (t) => {
-    if (!activeCoins.has(coin)) return; // clearScatteredCoins 等で既に片付け済み
-    const k = easeOutCubic(Math.min(1, (t - t0) / COIN_SCATTER_MS));
-    setCoinPos(coin, lerp(from.x, rest.x, k), lerp(from.y, rest.y, k), 0.55 + k * 0.55, 1);
-    if (k < 1) { requestAnimationFrame(scatterStep); return; }
-    if (absorbing) scheduleAbsorb(coin, rest);
-    else scatteredCoins.push({ el: coin, x: rest.x, y: rest.y });
-  };
-  requestAnimationFrame(scatterStep);
+  particles.push({
+    kind, state: 'scatter', t0: performance.now(),
+    from, rest, x: from.x, y: from.y, scale: 0.55, opacity: 1, dead: false,
+  });
+  requestCoinFrame();
 }
 
 /**
@@ -595,7 +734,7 @@ function spawnCoin(from, kind, rest) {
 function absorbAllCoins(coinsBefore, gainBefore, gainAfter) {
   const coins = scatteredCoins;
   scatteredCoins = [];
-  const totalToLand = activeCoins.size; // 散らばり中のstragglerも含めた総数
+  const totalToLand = particles.length; // 散らばり中のstragglerも含めた総数
   const pctBefore = rentPct(coinsBefore);
   const pctAfter = rentPct(run.coins);
 
@@ -641,7 +780,7 @@ function absorbAllCoins(coinsBefore, gainBefore, gainAfter) {
         if (landed >= totalToLand) naturalFinish();
       },
     };
-    for (const c of coins) scheduleAbsorb(c.el, { x: c.x, y: c.y });
+    for (const p of coins) scheduleAbsorb(p);
   });
 }
 
@@ -659,55 +798,38 @@ function setRentFillPct(pct) {
 }
 
 /**
- * コイン1枚を、共有スケジュールの「次の出発枠」に乗せて吸い込ませる。
+ * コイン1枚（粒子）を、共有スケジュールの「次の出発枠」に乗せて吸い込ませる。
  * to は必ずローカル変数に取ってから setTimeout の中で使うこと ── absorbing は
  * 次のスピン開始時に null へリセットされる（animateSpin 冒頭）ので、
  * コールバックの中で `absorbing.to` を直接読むと、そのスピンの吸収が
  * 終わり切る前に次のスピンが始まった場合に落ちる。
  */
-function scheduleAbsorb(coinEl, restPos) {
+function scheduleAbsorb(p) {
   const { to } = absorbing;
   const delay = Math.max(0, absorbing.nextSlotAt - performance.now());
   absorbing.nextSlotAt += ABSORB_STAGGER_MS;
-  setTimeout(() => suckIn(coinEl, restPos, to), delay);
+  setTimeout(() => {
+    if (p.dead) return; // clearScatteredCoins で既に片付け済み
+    p.state = 'suck';
+    p.t0 = performance.now();
+    p.from = { x: p.x, y: p.y };
+    p.mid = { x: (p.x + to.x) / 2, y: (p.y + to.y) / 2 };
+    p.to = to;
+    requestCoinFrame();
+  }, delay);
 }
 
 /**
  * スキップ時など、飛ばしている暇がない時にコインを即座に片付ける。
  * 散らばり待機中だけでなく、散らばりアニメーションの途中のものも含めて全部消す
- * （activeCoins が生成〜消滅までの全コインを持っているので、これで漏れがない）。
+ * （particles が生成〜消滅までの全コインを持っているので、これで漏れがない）。
  */
 function clearScatteredCoins() {
-  for (const c of activeCoins) c.remove();
-  activeCoins = new Set();
+  for (const p of particles) p.dead = true;
+  particles = [];
   scatteredCoins = [];
   absorbing = null;
-}
-
-/**
- * 静止していたコインを、合計表示へ吸い込む。
- */
-function suckIn(coin, from, to) {
-  const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
-  const t0 = performance.now();
-  const step = (t) => {
-    if (!activeCoins.has(coin)) return; // clearScatteredCoins で既に片付け済み
-    const el0 = t - t0;
-    if (el0 < COIN_SUCK_MS) {
-      const k = easeInCubic(el0 / COIN_SUCK_MS);
-      // mid を制御点にした2次ベジェで、合計表示へ吸い込まれる弧を描く
-      const x = bezier2(from.x, mid.x, to.x, k);
-      const y = bezier2(from.y, mid.y, to.y, k);
-      setCoinPos(coin, x, y, 1.1 - k * 0.95, 1 - k * 0.85);
-      requestAnimationFrame(step);
-    } else {
-      sfx.coinLand();
-      activeCoins.delete(coin);
-      coin.remove();
-      absorbing?.onLand?.();
-    }
-  };
-  requestAnimationFrame(step);
+  if (coinCtx) coinCtx.clearRect(0, 0, coinCanvasSize.w, coinCanvasSize.h);
 }
 
 /**
@@ -723,13 +845,6 @@ function showScoreBadge(index, amount) {
   badge.textContent = `+${amount.toLocaleString()}`;
   host.appendChild(badge);
   badge.addEventListener('animationend', () => badge.remove(), { once: true });
-}
-
-function setCoinPos(node, x, y, scale, opacity) {
-  node.style.left = `${x}px`;
-  node.style.top = `${y}px`;
-  node.style.transform = `translate(-50%, -50%) scale(${scale})`;
-  node.style.opacity = opacity;
 }
 
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -1111,4 +1226,8 @@ function hideAll() {
 }
 
 // デバッグ用（コンソールから触れるように）
-window.__game = { get run() { return run; }, SYMBOLS, startRun, dailySeed };
+window.__game = {
+  get run() { return run; },
+  get particleCount() { return particles.length; }, // コイン演出の残留確認用
+  SYMBOLS, startRun, dailySeed,
+};

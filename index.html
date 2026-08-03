@@ -53,8 +53,10 @@
   </div>
 
   <!-- コインが飛び散って合計へ吸い込まれる演出専用のレイヤー。盤面もヘッダーもまたぐので、
-       個々のマスやgain-areaの中ではなく #app 直下に敷く -->
-  <div id="coin-layer" class="coin-layer" aria-hidden="true"></div>
+       個々のマスやgain-areaの中ではなく #app 直下に敷く。
+       枚数上限のないコイン演出でも古い端末で軽く動くよう、コイン1枚ごとに
+       DOM要素を作らず単一の<canvas>にまとめて描画する（src/ui/app.js参照）。 -->
+  <canvas id="coin-layer" class="coin-layer" aria-hidden="true"></canvas>
 
   <!-- ───────── 家賃ゲージ ─────────
        コインが吸い込まれるタイミングに合わせて視覚的に増えていく演出のため、
