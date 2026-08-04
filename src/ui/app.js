@@ -506,19 +506,22 @@ const COIN_SUCK_MS = 400;
  * 潰れて聞こえる。「1枚ずつ、ジャラッ、ジャラッ」と聞き取れる間隔まで開ける。
  *
  * ただし枚数に上限がないため、この間隔を常に固定にすると、数百枚では
- * 全部吸い込み終わるまでに数秒〜十数秒かかってしまう。「コイン吸い込みの
- * 間隔は数に比例して少しずつ狭くする」という要望を受けて、枚数が多い
- * ほど間隔を ABSORB_STAGGER_MIN_MS まで徐々に狭める（absorbStaggerMs 参照）。
- * 少数枚のときは今まで通り ABSORB_STAGGER_MAX_MS のゆったりした間隔のまま。
+ * 全部吸い込み終わるまでに数秒〜十数秒かかってしまう。「吸われ始めは
+ * 今までどおりで、ターンの合計枚数が増えるごとに加速していく」という
+ * 要望を受けて、**このスピンで既に出発させた枚数**（総枚数の事前計算
+ * ではなく、進行に応じて動くカウンタ）に応じて間隔を狭める。1枚目は
+ * 必ず ABSORB_STAGGER_MAX_MS から始まり、出発した枚数が増えるほど
+ * ABSORB_STAGGER_MIN_MS まで徐々に加速し、そこで頭打ちになる
+ * （absorbStaggerMs 参照）。
  */
 const ABSORB_STAGGER_MAX_MS = 32;
 const ABSORB_STAGGER_MIN_MS = 14;
-/** この枚数で ABSORB_STAGGER_MIN_MS（最短間隔）に達する */
+/** 出発済み枚数がこの数に達すると ABSORB_STAGGER_MIN_MS（最短間隔）になる */
 const ABSORB_STAGGER_NARROW_COUNT = 80;
 
-/** 吸い込み枚数（totalToLand）に応じた出発間隔。多いほど徐々に狭くなる */
-function absorbStaggerMs(totalCoins) {
-  const t = Math.min(1, totalCoins / ABSORB_STAGGER_NARROW_COUNT);
+/** これまでに出発させた枚数（departedCount）に応じた、次の出発間隔。多いほど徐々に狭くなる */
+function absorbStaggerMs(departedCount) {
+  const t = Math.min(1, departedCount / ABSORB_STAGGER_NARROW_COUNT);
   return ABSORB_STAGGER_MAX_MS - (ABSORB_STAGGER_MAX_MS - ABSORB_STAGGER_MIN_MS) * t;
 }
 
@@ -740,10 +743,10 @@ let scatteredCoins = [];
 /**
  * 「吸収はもう始まっているか」の状態。
  * nextSlotAt は「次にコインを出発させてよい絶対時刻」で、1枚出発させるたびに
- * staggerMs（枚数に応じた出発間隔。absorbStaggerMs参照）だけ先へ進める。
- * これにより、最初からあったコインも、
- * 後から遅れて散らばり終えたコイン（下記コメント参照）も、**同じ規則正しい
- * 間隔のスケジュールに乗る**。合流のたびに独自のタイミングで出発させてしまうと、
+ * absorbStaggerMs(その時点までに出発した枚数) だけ先へ進める（進むほど
+ * 間隔が狭まっていく）。これにより、最初からあったコインも、
+ * 後から遅れて散らばり終えたコイン（下記コメント参照）も、**同じ1本の
+ * 進行スケジュールに乗る**。合流のたびに独自のタイミングで出発させてしまうと、
  * その部分だけ間隔が乱れて「ジャラッ、ジャラッ」のリズムが崩れる。
  *
  * ①②とも、次へ進む前にバーストが最後の1枚をトリガーするまでは待つ
@@ -842,7 +845,6 @@ function absorbAllCoins(coinsBefore, gainBefore, gainAfter) {
     absorbing = {
       to: centerOf(el.gain),
       nextSlotAt: performance.now(),
-      staggerMs: absorbStaggerMs(totalToLand),
       nextPitch: 0,
       onLand: () => {
         landed++;
@@ -877,21 +879,22 @@ function setRentFillPct(pct) {
  * コールバックの中で `absorbing.to` を直接読むと、そのスピンの吸収が
  * 終わり切る前に次のスピンが始まった場合に落ちる。
  *
- * nextPitch も nextSlotAt と同じく「出発した順」で1ずつ進める。着地音
- * （sfx.coinLand）はこの順番で音程を少しずつ上げるため、出発順＝着地順
- * （等間隔スケジュールなので順序は入れ替わらない）がそのまま音程の並びに
- * なる。上げ幅の頭打ちは coinLand 側で処理する。
- *
- * staggerMs（出発間隔そのもの）は absorbAllCoins 開始時に枚数から一度だけ
- * 計算して absorbing に持たせている（absorbStaggerMs）。スピン内で
- * 吸い込みが始まった後に枚数が変わることはないため、1枚ごとに再計算する
- * 必要はない。
+ * nextPitch は「これまでに出発させた枚数」を1ずつ進めるカウンタで、
+ * 二役を兼ねる：
+ *   1. 着地音（sfx.coinLand）の音程を出発順に少しずつ上げる材料
+ *      （出発順＝着地順。等間隔スケジュールなので順序は入れ替わらない。
+ *      上げ幅の頭打ちは coinLand 側で処理する）
+ *   2. 次の出発間隔そのもの（absorbStaggerMs）── 総枚数を事前計算する
+ *      のではなく、「このターンで今まで何枚出発させたか」の実績値で
+ *      決める。そのため1枚目は必ず ABSORB_STAGGER_MAX_MS から始まり、
+ *      枚数を重ねるごとにその場で加速していく
  */
 function scheduleAbsorb(p) {
   const { to } = absorbing;
   const delay = Math.max(0, absorbing.nextSlotAt - performance.now());
+  const departed = absorbing.nextPitch;
   p.pitchStep = absorbing.nextPitch++;
-  absorbing.nextSlotAt += absorbing.staggerMs;
+  absorbing.nextSlotAt += absorbStaggerMs(departed);
   setTimeout(() => {
     if (p.dead) return; // clearScatteredCoins で既に片付け済み
     p.state = 'suck';
