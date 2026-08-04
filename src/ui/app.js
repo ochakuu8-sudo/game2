@@ -502,26 +502,34 @@ const COIN_SCATTER_MS = 130;
 const COIN_SUCK_MS = 400;
 /**
  * 最後の一斉回収で、コインを吸い込み始めるタイミングをずらす間隔。
- * 小さすぎる（例: 16ms）と複数枚がほぼ同時に着地してしまい、音が1つの塊に
- * 潰れて聞こえる。「1枚ずつ、ジャラッ、ジャラッ」と聞き取れる間隔まで開ける。
+ * 小さすぎると複数枚がほぼ同時に着地してしまい、音が1つの塊に潰れて
+ * 聞こえる。「1枚ずつ、ジャラッ、ジャラッ」と聞き取れる間隔まで開ける。
  *
  * ただし枚数に上限がないため、この間隔を常に固定にすると、数百枚では
  * 全部吸い込み終わるまでに数秒〜十数秒かかってしまう。「吸われ始めは
  * 今までどおりで、ターンの合計枚数が増えるごとに加速していく」という
  * 要望を受けて、**このスピンで既に出発させた枚数**（総枚数の事前計算
- * ではなく、進行に応じて動くカウンタ）に応じて間隔を狭める。1枚目は
- * 必ず ABSORB_STAGGER_MAX_MS から始まり、出発した枚数が増えるほど
- * ABSORB_STAGGER_MIN_MS まで徐々に加速し、そこで頭打ちになる
- * （absorbStaggerMs 参照）。
+ * ではなく、進行に応じて動くカウンタ）に応じて間隔を狭める。
+ *
+ * 「50msからスタートして、40枚から少しずつ加速して、200枚で20ms（上限）
+ * になるイメージ」という指定に合わせて数値を決めた：出発済み枚数が
+ * ABSORB_STAGGER_NARROW_START_COUNT（40枚）に達するまでは
+ * ABSORB_STAGGER_MAX_MS（50ms）のまま、そこから
+ * ABSORB_STAGGER_NARROW_END_COUNT（200枚）にかけて線形に加速し、
+ * ABSORB_STAGGER_MIN_MS（20ms）で頭打ちになる（absorbStaggerMs 参照）。
  */
-const ABSORB_STAGGER_MAX_MS = 32;
-const ABSORB_STAGGER_MIN_MS = 14;
+const ABSORB_STAGGER_MAX_MS = 50;
+const ABSORB_STAGGER_MIN_MS = 20;
+/** 出発済み枚数がこの数に達するまでは ABSORB_STAGGER_MAX_MS のまま */
+const ABSORB_STAGGER_NARROW_START_COUNT = 40;
 /** 出発済み枚数がこの数に達すると ABSORB_STAGGER_MIN_MS（最短間隔）になる */
-const ABSORB_STAGGER_NARROW_COUNT = 80;
+const ABSORB_STAGGER_NARROW_END_COUNT = 200;
 
 /** これまでに出発させた枚数（departedCount）に応じた、次の出発間隔。多いほど徐々に狭くなる */
 function absorbStaggerMs(departedCount) {
-  const t = Math.min(1, departedCount / ABSORB_STAGGER_NARROW_COUNT);
+  const t = Math.min(1, Math.max(0,
+    (departedCount - ABSORB_STAGGER_NARROW_START_COUNT)
+      / (ABSORB_STAGGER_NARROW_END_COUNT - ABSORB_STAGGER_NARROW_START_COUNT)));
   return ABSORB_STAGGER_MAX_MS - (ABSORB_STAGGER_MAX_MS - ABSORB_STAGGER_MIN_MS) * t;
 }
 
