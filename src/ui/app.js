@@ -491,7 +491,7 @@ function nearestDist(pt, pts) {
 /**
  * コインの生成間隔。散らばり方向にはランダム性があるが、時間軸は常に固定。
  * 「1枚ずつ高速でジャラララと出てくる感じにしたい」という要望を受けて
- * 45ms→24msに短縮。吸い込み側（ABSORB_STAGGER_MS）と同じ理屈で、詰めすぎると
+ * 45ms→24msに短縮。吸い込み側（ABSORB_STAGGER_MAX_MS）と同じ理屈で、詰めすぎると
  * coinPop の音が塊に潰れるが、24msなら短い「ジャッ」音（dur 20〜30ms）どうしが
  * ほぼ隙間なく連なりつつ1発ずつ聞き取れる範囲に収まる。
  * その後「もう少しだけ間隔を広げて」との要望を受けて30ms、さらに
@@ -504,8 +504,23 @@ const COIN_SUCK_MS = 400;
  * 最後の一斉回収で、コインを吸い込み始めるタイミングをずらす間隔。
  * 小さすぎる（例: 16ms）と複数枚がほぼ同時に着地してしまい、音が1つの塊に
  * 潰れて聞こえる。「1枚ずつ、ジャラッ、ジャラッ」と聞き取れる間隔まで開ける。
+ *
+ * ただし枚数に上限がないため、この間隔を常に固定にすると、数百枚では
+ * 全部吸い込み終わるまでに数秒〜十数秒かかってしまう。「コイン吸い込みの
+ * 間隔は数に比例して少しずつ狭くする」という要望を受けて、枚数が多い
+ * ほど間隔を ABSORB_STAGGER_MIN_MS まで徐々に狭める（absorbStaggerMs 参照）。
+ * 少数枚のときは今まで通り ABSORB_STAGGER_MAX_MS のゆったりした間隔のまま。
  */
-const ABSORB_STAGGER_MS = 32;
+const ABSORB_STAGGER_MAX_MS = 32;
+const ABSORB_STAGGER_MIN_MS = 14;
+/** この枚数で ABSORB_STAGGER_MIN_MS（最短間隔）に達する */
+const ABSORB_STAGGER_NARROW_COUNT = 80;
+
+/** 吸い込み枚数（totalToLand）に応じた出発間隔。多いほど徐々に狭くなる */
+function absorbStaggerMs(totalCoins) {
+  const t = Math.min(1, totalCoins / ABSORB_STAGGER_NARROW_COUNT);
+  return ABSORB_STAGGER_MAX_MS - (ABSORB_STAGGER_MAX_MS - ABSORB_STAGGER_MIN_MS) * t;
+}
 
 /** #app を基準にした要素中心の座標（コイン要素をそこに絶対配置するため） */
 function centerOf(node) {
@@ -546,7 +561,7 @@ const easeInQuad = (t) => t * t;
  *   「時間から位置を計算 → 描く」を行う。コインが1枚もいなければ
  *   ループ自体を止める。
  *
- * 座標系・タイミング（COIN_SCATTER_MS・ABSORB_STAGGER_MS等）や散らばり
+ * 座標系・タイミング（COIN_SCATTER_MS・absorbStaggerMs等）や散らばり
  * 位置の選び方（pickScatterPositions）はDOM版から変えていない。
  */
 let particles = [];
@@ -725,7 +740,8 @@ let scatteredCoins = [];
 /**
  * 「吸収はもう始まっているか」の状態。
  * nextSlotAt は「次にコインを出発させてよい絶対時刻」で、1枚出発させるたびに
- * ABSORB_STAGGER_MS だけ先へ進める。これにより、最初からあったコインも、
+ * staggerMs（枚数に応じた出発間隔。absorbStaggerMs参照）だけ先へ進める。
+ * これにより、最初からあったコインも、
  * 後から遅れて散らばり終えたコイン（下記コメント参照）も、**同じ規則正しい
  * 間隔のスケジュールに乗る**。合流のたびに独自のタイミングで出発させてしまうと、
  * その部分だけ間隔が乱れて「ジャラッ、ジャラッ」のリズムが崩れる。
@@ -759,8 +775,10 @@ function spawnCoin(from, kind, rest) {
 
 /**
  * その時点までに散らばって待機している全コインを、合計表示へ吸い込む。
- * 1枚ずつ ABSORB_STAGGER_MS の等間隔で吸い込み始めることで、
- * 「チッ、チッ、チッ」と1枚ずつ聞き分けられる連続音にする。
+ * 1枚ずつ、枚数に応じた間隔（absorbStaggerMs。少数なら ABSORB_STAGGER_MAX_MS、
+ * 多いほど ABSORB_STAGGER_MIN_MS まで徐々に狭まる）で吸い込み始めることで、
+ * 「チッ、チッ、チッ」と1枚ずつ聞き分けられる連続音にしつつ、大量のコイン
+ * でも吸い込み全体が間延びしすぎないようにする。
  * 呼び出し後に散らばり終える遅れてきたコインも absorbing フラグを見て自動的に合流する。
  *
  * **全部吸い込み終わるまで待てるように Promise を返す。**
@@ -824,6 +842,7 @@ function absorbAllCoins(coinsBefore, gainBefore, gainAfter) {
     absorbing = {
       to: centerOf(el.gain),
       nextSlotAt: performance.now(),
+      staggerMs: absorbStaggerMs(totalToLand),
       nextPitch: 0,
       onLand: () => {
         landed++;
@@ -860,14 +879,19 @@ function setRentFillPct(pct) {
  *
  * nextPitch も nextSlotAt と同じく「出発した順」で1ずつ進める。着地音
  * （sfx.coinLand）はこの順番で音程を少しずつ上げるため、出発順＝着地順
- * （ABSORB_STAGGER_MSの等間隔スケジュールなので順序は入れ替わらない）が
- * そのまま音程の並びになる。上げ幅の頭打ちは coinLand 側で処理する。
+ * （等間隔スケジュールなので順序は入れ替わらない）がそのまま音程の並びに
+ * なる。上げ幅の頭打ちは coinLand 側で処理する。
+ *
+ * staggerMs（出発間隔そのもの）は absorbAllCoins 開始時に枚数から一度だけ
+ * 計算して absorbing に持たせている（absorbStaggerMs）。スピン内で
+ * 吸い込みが始まった後に枚数が変わることはないため、1枚ごとに再計算する
+ * 必要はない。
  */
 function scheduleAbsorb(p) {
   const { to } = absorbing;
   const delay = Math.max(0, absorbing.nextSlotAt - performance.now());
   p.pitchStep = absorbing.nextPitch++;
-  absorbing.nextSlotAt += ABSORB_STAGGER_MS;
+  absorbing.nextSlotAt += absorbing.staggerMs;
   setTimeout(() => {
     if (p.dead) return; // clearScatteredCoins で既に片付け済み
     p.state = 'suck';
